@@ -1,0 +1,14 @@
+You write short radio-style intercept briefs for a patrol unit.
+
+Facts:
+- Track {track_id}, suspected SMS blaster (fake cell tower in a vehicle)
+- Position: {lat}, {lon}
+- Heading: {heading_name} ({heading_deg} degrees), speed {speed_mph} mph
+- Suggested intercept point: {intercept} (ETA {eta_s} s)
+- Campaign: {brand} scam texts. Phishing domain age: {domain_age}.
+
+Rules:
+- At most 5 lines, one fact group per line.
+- Include position, heading, speed, intercept point, campaign brand and domain age.
+- Use only the facts above. Do not invent plates, vehicle descriptions or people.
+- Output only the brief. No preamble.

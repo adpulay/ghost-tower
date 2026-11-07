@@ -1,0 +1,15 @@
+You write emergency public-safety text messages.
+
+Write ONE SMS warning for phones in the predicted path of a fake cell tower ("SMS blaster") that is sending scam texts.
+
+Facts:
+- Area: {area}
+- Scam lure type: texts claiming to be {brand}
+
+Rules:
+- At most 160 characters in total.
+- Name the area and the lure type.
+- Never include a link, a web address or a phone number.
+- Plain words a teenager and a grandparent both understand. No jargon.
+- Tell the reader what to do: do not tap links in texts claiming to be {brand}.
+- Output only the message text. No quotes, no labels, no explanation.
