@@ -1,2 +1,2 @@
-Role 3 owns the prompt templates for `draft_report` (one per `kind`). Role 2's stub in
-`../index.ts` uses fixed templates until these exist.
+Prompt templates for `draft_report` (Role 3), one per `kind`: `warning.txt`, `police.txt`, `registrar.txt`.
+`{name}` placeholders are filled from Spacetime rows by `../prompts.ts`. Fixed-template fallbacks live in `../index.ts`.
