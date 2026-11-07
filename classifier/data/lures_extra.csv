@@ -1,0 +1,33 @@
+text,label
+"TxTag: You have an unpaid toll balance of $4.35. Pay by today to avoid a $50 late fee: txtag-pay-demo.example/pay",scam
+"TXTAG NOTICE: Your toll account is overdue. Settle $6.80 within 24 hours at txtag-billing.example",scam
+"NTTA: Final notice for unpaid tolls ($12.51). Avoid penalties and DMV hold: ntta-tolls-demo.example",scam
+"North Texas Tollway Authority: outstanding balance $3.20. Pay now ntta-pay.example/inv",scam
+"E-ZPass: Your account has an unpaid toll of $5.99. Pay immediately to avoid suspension: ezpass-help.example",scam
+"SunPass alert: toll invoice past due $7.45. Visit sunpass-invoice.example to resolve today",scam
+"FasTrak: we were unable to process your toll payment. Update billing at fastrak-update.example",scam
+"Toll Services: You owe $4.15 in unpaid tolls. Pay within 48 hours: tolls-texas.example",scam
+"TxTag: Final reminder. Your vehicle has an outstanding toll. Late fees apply after today. txtag-secure.example",scam
+"NTTA TollTag: your tag has been suspended due to an unpaid balance. Reactivate: tolltag-renew.example",scam
+"USPS: Your package is on hold due to an incomplete address. Update within 12 hours: usps-redelivery-demo.example",scam
+"USPS: We attempted delivery and could not reach you. Reschedule here usps-track-help.example",scam
+"FedEx: your parcel has a pending customs fee of $1.99. Pay now: fedex-fee.example",scam
+"UPS: Delivery failed. Confirm your address to avoid return: ups-redeliver.example",scam
+"Chase: Unusual sign-in detected. Verify your identity immediately or your account will be locked: chase-verify-demo.example",scam
+"Chase Alert: a $1,249.00 Zelle payment is pending. If this was not you, cancel at chase-secure-help.example",scam
+"Wells Fargo: Your debit card has been restricted. Confirm details at wf-verify.example",scam
+"Bank of America: suspicious activity on your account. Verify now bofa-alerts.example",scam
+"Capital One: Your account is temporarily locked. Unlock at capone-unlock.example",scam
+"Citi: we noticed a charge of $389.20. Reply or visit citi-dispute.example to stop it",scam
+"PayPal: your account access is limited. Restore access within 24 hours: paypal-resolve.example",scam
+"Zelle: Payment of $500 is on hold. Confirm your bank details at zelle-confirm.example",scam
+"Venmo: unusual login attempt. Secure your account now venmo-secure.example",scam
+"Amazon: your order #114-332 could not be shipped. Update payment at amzn-billing.example",scam
+"Apple ID: your iCloud has been locked for security reasons. Unlock at appleid-unlock.example",scam
+"Netflix: your membership is on hold. Update your payment details: netflix-billing.example",scam
+"IRS: You are eligible for a tax refund of $812.40. Claim before it expires: irs-refund.example",scam
+"DMV: Your driver license will be suspended for unpaid citations. Pay today: txdmv-fines.example",scam
+"T-Mobile: your bill payment failed. Update now to avoid service interruption: tmo-billpay.example",scam
+"Toll violation notice: unpaid toll on Sam Rayburn Tollway. Pay $3.75 at srt-toll.example to avoid fines",scam
+"TxTag: Due to a system update, re-enter your card to keep your account active: txtag-update.example",scam
+"Chase: Your card ending 4421 has been suspended. Call 214-555-0182 or visit chase-card-help.example",scam

@@ -1,0 +1,13 @@
+{
+  "_comment": "Maps link domains to their url_hash (SHA-256 of the normalized domain, INTERFACES.md §2). 'demo-scam' domains are fictional *.example names used by the simulator and are NEVER looked up live. 'benign' domains may be looked up via public RDAP.",
+  "domains": [
+    { "domain": "txtag-pay-demo.example", "kind": "demo-scam", "brand": "TxTag", "canned_age_days": 2 },
+    { "domain": "ntta-tolls-demo.example", "kind": "demo-scam", "brand": "NTTA", "canned_age_days": 3 },
+    { "domain": "usps-redelivery-demo.example", "kind": "demo-scam", "brand": "USPS", "canned_age_days": 1 },
+    { "domain": "chase-verify-demo.example", "kind": "demo-scam", "brand": "Chase", "canned_age_days": 5 },
+    { "domain": "txtag.org", "kind": "benign", "brand": "TxTag" },
+    { "domain": "ntta.org", "kind": "benign", "brand": "NTTA" },
+    { "domain": "usps.com", "kind": "benign", "brand": "USPS" },
+    { "domain": "chase.com", "kind": "benign", "brand": "Chase" }
+  ]
+}

@@ -1,0 +1,609 @@
+{
+  "scenario": "demo-01",
+  "recorded_at": "2026-11-07T21:11:40.733Z",
+  "model": "mock:policy",
+  "ops": [
+    {
+      "t_ms": 0,
+      "op": "agent_write_trace",
+      "track_id": 1,
+      "kind": "plan",
+      "text": "Investigating track #1: grouping campaign, checking origin, predicting route"
+    },
+    {
+      "t_ms": 0,
+      "op": "agent_write_trace",
+      "track_id": 1,
+      "kind": "tool_call",
+      "text": "Calling get_track_context"
+    },
+    {
+      "t_ms": 0,
+      "op": "agent_write_trace",
+      "track_id": 1,
+      "kind": "tool_result",
+      "text": "Track #1: 21 events, heading east at 11 m/s, lure brand TxTag."
+    },
+    {
+      "t_ms": 0,
+      "op": "agent_write_trace",
+      "track_id": 1,
+      "kind": "tool_call",
+      "text": "Calling rdap_domain_age(txtag-pay-demo.example)"
+    },
+    {
+      "t_ms": 0,
+      "op": "agent_write_trace",
+      "track_id": 1,
+      "kind": "tool_result",
+      "text": "Domain txtag-pay-demo.example was registered 2 days ago, a typical throwaway lure."
+    },
+    {
+      "t_ms": 0,
+      "op": "agent_write_trace",
+      "track_id": 1,
+      "kind": "tool_call",
+      "text": "Calling carrier_smsc_lookup(dc36b9e2…, 1794153620000)"
+    },
+    {
+      "t_ms": 0,
+      "op": "agent_write_trace",
+      "track_id": 1,
+      "kind": "tool_result",
+      "text": "Carrier SMSC check: no match, so these texts never went through the carrier network. [simulated]"
+    },
+    {
+      "t_ms": 0,
+      "op": "agent_write_trace",
+      "track_id": 1,
+      "kind": "tool_call",
+      "text": "Calling predict_route(32.9858, -96.7721, 90, 11, 300)"
+    },
+    {
+      "t_ms": 0,
+      "op": "agent_write_trace",
+      "track_id": 1,
+      "kind": "tool_result",
+      "text": "Predicted 11-point route; intercept at 32.9858, -96.7580 in ~120 s."
+    },
+    {
+      "t_ms": 0,
+      "op": "agent_write_trace",
+      "track_id": 1,
+      "kind": "tool_call",
+      "text": "Calling agent_link_campaign(dc36b9e2…, TxTag, 2)"
+    },
+    {
+      "t_ms": 0,
+      "op": "agent_link_campaign",
+      "track_id": 1,
+      "url_hash": "dc36b9e2d4d88d14fc148d4fba4677b711ac4f11c23bd4f7f84a6525c0a0b75e",
+      "brand": "TxTag",
+      "domain_age_days": 2
+    },
+    {
+      "t_ms": 0,
+      "op": "agent_write_trace",
+      "track_id": 1,
+      "kind": "tool_result",
+      "text": "Linked track to the TxTag campaign (link dc36b9e2…)."
+    },
+    {
+      "t_ms": 0,
+      "op": "agent_write_trace",
+      "track_id": 1,
+      "kind": "tool_call",
+      "text": "Calling agent_set_prediction"
+    },
+    {
+      "t_ms": 0,
+      "op": "agent_set_prediction",
+      "prediction": {
+        "track_id": 1,
+        "path_json": "[[32.98579999889145,-96.7721412797998],[32.985799949004495,-96.7686031995007],[32.985799799343624,-96.76506511920961],[32.98579954990885,-96.76152703893452],[32.985799200700164,-96.75798895868341],[32.98579875171757,-96.75445087846428],[32.98579820296108,-96.75091279828519],[32.98579755443068,-96.74737471815402],[32.98579680612639,-96.74383663807889],[32.98579595804821,-96.74029855806772],[32.98579501019613,-96.73676047812853]]",
+        "intercept_lat": 32.985799200700164,
+        "intercept_lon": -96.75798895868341,
+        "eta_s": 120,
+        "updated_ms": 1794153620000
+      }
+    },
+    {
+      "t_ms": 0,
+      "op": "agent_write_trace",
+      "track_id": 1,
+      "kind": "tool_result",
+      "text": "Published predicted route and intercept point to the map (ETA 120 s)."
+    },
+    {
+      "t_ms": 0,
+      "op": "agent_write_trace",
+      "track_id": 1,
+      "kind": "tool_call",
+      "text": "Calling draft_report(warning)"
+    },
+    {
+      "t_ms": 0,
+      "op": "agent_write_trace",
+      "track_id": 1,
+      "kind": "tool_result",
+      "text": "Drafted warning: \"Scam alert near Campbell Rd, Richardson: fake TxTag texts asking you to pay are circulating. Do not tap links. Pay only v…"
+    },
+    {
+      "t_ms": 0,
+      "op": "agent_write_trace",
+      "track_id": 1,
+      "kind": "tool_call",
+      "text": "Calling send_warning"
+    },
+    {
+      "t_ms": 0,
+      "op": "agent_write_trace",
+      "track_id": 1,
+      "kind": "tool_result",
+      "text": "Warning sent to 44 phones in the predicted path."
+    },
+    {
+      "t_ms": 0,
+      "op": "agent_write_trace",
+      "track_id": 1,
+      "kind": "tool_call",
+      "text": "Calling agent_record_alert"
+    },
+    {
+      "t_ms": 0,
+      "op": "agent_record_alert",
+      "alert": {
+        "track_id": 1,
+        "zone_json": "[[32.98579995766256,-96.77535771643555],[32.9884979637092,-96.7721412797998],[32.98849791382224,-96.7686031995007],[32.98849776415985,-96.76506501107212],[32.98849751472051,-96.76152682265953],[32.98849716550419,-96.75798863427093],[32.98849671651092,-96.75445044591432],[32.98849616774071,-96.75091225759775],[32.988495519193556,-96.7473740693291],[32.98849477086944,-96.74383588111648],[32.98849392276838,-96.74029769296786],[32.98849297489038,-96.7367595048912],[32.98579415263531,-96.73354404185153],[32.983097045501864,-96.73676145130636],[32.98309799332802,-96.74029942311472],[32.98309884138334,-96.74383739499501],[32.983099589667816,-96.74737536693928],[32.98310023818144,-96.75091333893958],[32.983100786924204,-96.7544513109878],[32.983101235896136,-96.75798928307606],[32.983101585097195,-96.76152725519627],[32.98310183452739,-96.76506522734049],[32.983101984186725,-96.7686031995007],[32.98310203407369,-96.7721412797998]]",
+        "message": "Scam alert near Campbell Rd, Richardson: fake TxTag texts asking you to pay are circulating. Do not tap links. Pay only via the official app or site.",
+        "sent_ms": 1794153620000,
+        "recipients": 44
+      }
+    },
+    {
+      "t_ms": 0,
+      "op": "agent_write_trace",
+      "track_id": 1,
+      "kind": "tool_result",
+      "text": "Recorded alert for 44 recipients on the map."
+    },
+    {
+      "t_ms": 0,
+      "op": "agent_write_trace",
+      "track_id": 1,
+      "kind": "summary",
+      "text": "Track #1: TxTag lure from a new domain, not via carrier; route predicted, 44 phones warned."
+    },
+    {
+      "t_ms": 20005,
+      "op": "agent_write_trace",
+      "track_id": 1,
+      "kind": "plan",
+      "text": "Refreshing route prediction for track #1"
+    },
+    {
+      "t_ms": 20005,
+      "op": "agent_write_trace",
+      "track_id": 1,
+      "kind": "tool_call",
+      "text": "Calling predict_route(32.9858, -96.7698, 90, 11, 300)"
+    },
+    {
+      "t_ms": 20005,
+      "op": "agent_write_trace",
+      "track_id": 1,
+      "kind": "tool_result",
+      "text": "Predicted 11-point route; intercept at 32.9858, -96.7556 in ~120 s."
+    },
+    {
+      "t_ms": 20005,
+      "op": "agent_write_trace",
+      "track_id": 1,
+      "kind": "tool_call",
+      "text": "Calling agent_set_prediction"
+    },
+    {
+      "t_ms": 20005,
+      "op": "agent_set_prediction",
+      "prediction": {
+        "track_id": 1,
+        "path_json": "[[32.98579999778288,-96.7697825595996],[32.98579994789593,-96.76624447930055],[32.98579979823506,-96.7627063990095],[32.98579954880029,-96.75916831873447],[32.9857991995916,-96.75563023848339],[32.985798750609,-96.75209215826432],[32.98579820185252,-96.74855407808525],[32.98579755332212,-96.74501599795416],[32.98579680501782,-96.74147791787905],[32.98579595693963,-96.73793983786793],[32.98579500908756,-96.73440175792878]]",
+        "intercept_lat": 32.9857991995916,
+        "intercept_lon": -96.75563023848339,
+        "eta_s": 120,
+        "updated_ms": 1794153640005
+      }
+    },
+    {
+      "t_ms": 20005,
+      "op": "agent_write_trace",
+      "track_id": 1,
+      "kind": "tool_result",
+      "text": "Published predicted route and intercept point to the map (ETA 120 s)."
+    },
+    {
+      "t_ms": 20005,
+      "op": "agent_write_trace",
+      "track_id": 1,
+      "kind": "summary",
+      "text": "Route prediction refreshed for track #1."
+    },
+    {
+      "t_ms": 40006,
+      "op": "agent_write_trace",
+      "track_id": 1,
+      "kind": "plan",
+      "text": "Refreshing route prediction for track #1"
+    },
+    {
+      "t_ms": 40006,
+      "op": "agent_write_trace",
+      "track_id": 1,
+      "kind": "tool_call",
+      "text": "Calling predict_route(32.9858, -96.7674, 90, 11, 300)"
+    },
+    {
+      "t_ms": 40006,
+      "op": "agent_write_trace",
+      "track_id": 1,
+      "kind": "tool_result",
+      "text": "Predicted 11-point route; intercept at 32.9858, -96.7533 in ~120 s."
+    },
+    {
+      "t_ms": 40006,
+      "op": "agent_write_trace",
+      "track_id": 1,
+      "kind": "tool_call",
+      "text": "Calling agent_set_prediction"
+    },
+    {
+      "t_ms": 40006,
+      "op": "agent_set_prediction",
+      "prediction": {
+        "track_id": 1,
+        "path_json": "[[32.985799996674295,-96.7674238393994],[32.985799946787346,-96.7638857591004],[32.985799797126475,-96.7603476788094],[32.9857995476917,-96.75680959853439],[32.985799198483015,-96.75327151828338],[32.98579874950042,-96.74973343806434],[32.98579820074392,-96.74619535788533],[32.98579755221353,-96.74265727775426],[32.98579680390923,-96.73911919767919],[32.98579595583105,-96.73558111766812],[32.98579500797898,-96.73204303772903]]",
+        "intercept_lat": 32.985799198483015,
+        "intercept_lon": -96.75327151828338,
+        "eta_s": 120,
+        "updated_ms": 1794153660006
+      }
+    },
+    {
+      "t_ms": 40006,
+      "op": "agent_write_trace",
+      "track_id": 1,
+      "kind": "tool_result",
+      "text": "Published predicted route and intercept point to the map (ETA 120 s)."
+    },
+    {
+      "t_ms": 40006,
+      "op": "agent_write_trace",
+      "track_id": 1,
+      "kind": "summary",
+      "text": "Route prediction refreshed for track #1."
+    },
+    {
+      "t_ms": 61006,
+      "op": "agent_write_trace",
+      "track_id": 1,
+      "kind": "plan",
+      "text": "Refreshing route prediction for track #1"
+    },
+    {
+      "t_ms": 61006,
+      "op": "agent_write_trace",
+      "track_id": 1,
+      "kind": "tool_call",
+      "text": "Calling predict_route(32.9858, -96.7649, 90, 11, 300)"
+    },
+    {
+      "t_ms": 61006,
+      "op": "agent_write_trace",
+      "track_id": 1,
+      "kind": "tool_result",
+      "text": "Predicted 11-point route; intercept at 32.9858, -96.7508 in ~120 s."
+    },
+    {
+      "t_ms": 61006,
+      "op": "agent_write_trace",
+      "track_id": 1,
+      "kind": "tool_call",
+      "text": "Calling agent_set_prediction"
+    },
+    {
+      "t_ms": 61006,
+      "op": "agent_set_prediction",
+      "prediction": {
+        "track_id": 1,
+        "path_json": "[[32.985799995510305,-96.7649471831892],[32.98579994562336,-96.76140910289024],[32.985799795962485,-96.75787102259928],[32.98579954652771,-96.75433294232431],[32.985799197319025,-96.75079486207333],[32.98579874833642,-96.74725678185436],[32.985798199579946,-96.74371870167539],[32.985797551049544,-96.74018062154437],[32.98579680274525,-96.73664254146937],[32.98579595466707,-96.73310446145832],[32.98579500681499,-96.72956638151928]]",
+        "intercept_lat": 32.985799197319025,
+        "intercept_lon": -96.75079486207333,
+        "eta_s": 120,
+        "updated_ms": 1794153681006
+      }
+    },
+    {
+      "t_ms": 61006,
+      "op": "agent_write_trace",
+      "track_id": 1,
+      "kind": "tool_result",
+      "text": "Published predicted route and intercept point to the map (ETA 120 s)."
+    },
+    {
+      "t_ms": 61006,
+      "op": "agent_write_trace",
+      "track_id": 1,
+      "kind": "summary",
+      "text": "Route prediction refreshed for track #1."
+    },
+    {
+      "t_ms": 76006,
+      "op": "agent_write_trace",
+      "track_id": 1,
+      "kind": "replan",
+      "text": "Track #1 turned 90°, now heading north; re-predicting route and re-warning"
+    },
+    {
+      "t_ms": 76006,
+      "op": "agent_write_trace",
+      "track_id": 1,
+      "kind": "tool_call",
+      "text": "Calling predict_route(32.9863, -96.7637, 0, 10, 300)"
+    },
+    {
+      "t_ms": 76006,
+      "op": "agent_write_trace",
+      "track_id": 1,
+      "kind": "tool_result",
+      "text": "Predicted 11-point route; intercept at 32.9971, -96.7637 in ~120 s."
+    },
+    {
+      "t_ms": 76006,
+      "op": "agent_write_trace",
+      "track_id": 1,
+      "kind": "tool_call",
+      "text": "Calling agent_set_prediction"
+    },
+    {
+      "t_ms": 76006,
+      "op": "agent_set_prediction",
+      "prediction": {
+        "track_id": 1,
+        "path_json": "[[32.98627644448261,-96.76365011425666],[32.988974409300376,-96.76365011425666],[32.991672374118124,-96.76365011425666],[32.99437033893588,-96.76365011425666],[32.99706830375364,-96.76365011425666],[32.99976626857139,-96.76365011425666],[33.00246423338915,-96.76365011425666],[33.0051621982069,-96.76365011425666],[33.00786016302467,-96.76365011425666],[33.01055812784242,-96.76365011425666],[33.01325609266018,-96.76365011425666]]",
+        "intercept_lat": 32.99706830375364,
+        "intercept_lon": -96.76365011425666,
+        "eta_s": 120,
+        "updated_ms": 1794153696006
+      }
+    },
+    {
+      "t_ms": 76006,
+      "op": "agent_write_trace",
+      "track_id": 1,
+      "kind": "tool_result",
+      "text": "Published predicted route and intercept point to the map (ETA 120 s)."
+    },
+    {
+      "t_ms": 76006,
+      "op": "agent_write_trace",
+      "track_id": 1,
+      "kind": "tool_call",
+      "text": "Calling draft_report(warning)"
+    },
+    {
+      "t_ms": 76006,
+      "op": "agent_write_trace",
+      "track_id": 1,
+      "kind": "tool_result",
+      "text": "Drafted warning: \"Scam alert near Campbell Rd, Richardson: fake TxTag texts asking you to pay are circulating. Do not tap links. Pay only v…"
+    },
+    {
+      "t_ms": 76006,
+      "op": "agent_write_trace",
+      "track_id": 1,
+      "kind": "tool_call",
+      "text": "Calling send_warning"
+    },
+    {
+      "t_ms": 76006,
+      "op": "agent_write_trace",
+      "track_id": 1,
+      "kind": "tool_result",
+      "text": "Warning sent to 14 phones in the predicted path."
+    },
+    {
+      "t_ms": 76006,
+      "op": "agent_write_trace",
+      "track_id": 1,
+      "kind": "tool_call",
+      "text": "Calling agent_record_alert"
+    },
+    {
+      "t_ms": 76006,
+      "op": "agent_record_alert",
+      "alert": {
+        "track_id": 1,
+        "zone_json": "[[32.98357847966486,-96.76365011425666],[32.98627640325297,-96.76686656825252],[32.988974368066486,-96.76686666656522],[32.99167233287998,-96.76686676489106],[32.99437029769349,-96.76686686323005],[32.99706826250699,-96.7668669615822],[32.99976622732049,-96.76686705994749],[33.002464192134,-96.76686715832591],[33.0051621569475,-96.76686725671749],[33.00786012176101,-96.76686735512223],[33.010558086574505,-96.76686745354012],[33.01325605138801,-96.76686755197116],[33.01595405747793,-96.76365011425666],[33.01325605138801,-96.76043267654218],[33.010558086574505,-96.76043277497322],[33.00786012176101,-96.76043287339111],[33.0051621569475,-96.76043297179585],[33.002464192134,-96.76043307018745],[32.99976622732049,-96.76043316856588],[32.99706826250699,-96.76043326693114],[32.99437029769349,-96.76043336528329],[32.99167233287998,-96.76043346362226],[32.988974368066486,-96.76043356194812],[32.98627640325297,-96.76043366026083]]",
+        "message": "Scam alert near Campbell Rd, Richardson: fake TxTag texts asking you to pay are circulating. Do not tap links. Pay only via the official app or site.",
+        "sent_ms": 1794153696006,
+        "recipients": 14
+      }
+    },
+    {
+      "t_ms": 76006,
+      "op": "agent_write_trace",
+      "track_id": 1,
+      "kind": "tool_result",
+      "text": "Recorded alert for 14 recipients on the map."
+    },
+    {
+      "t_ms": 76006,
+      "op": "agent_write_trace",
+      "track_id": 1,
+      "kind": "summary",
+      "text": "Track #1: TxTag lure from a new domain, not via carrier; route predicted, 14 phones warned."
+    },
+    {
+      "t_ms": 97006,
+      "op": "agent_write_trace",
+      "track_id": 1,
+      "kind": "plan",
+      "text": "Refreshing route prediction for track #1"
+    },
+    {
+      "t_ms": 97006,
+      "op": "agent_write_trace",
+      "track_id": 1,
+      "kind": "tool_call",
+      "text": "Calling predict_route(32.9882, -96.7637, 0, 10, 300)"
+    },
+    {
+      "t_ms": 97006,
+      "op": "agent_write_trace",
+      "track_id": 1,
+      "kind": "tool_result",
+      "text": "Predicted 11-point route; intercept at 32.9990, -96.7637 in ~120 s."
+    },
+    {
+      "t_ms": 97006,
+      "op": "agent_write_trace",
+      "track_id": 1,
+      "kind": "tool_call",
+      "text": "Calling agent_set_prediction"
+    },
+    {
+      "t_ms": 97006,
+      "op": "agent_set_prediction",
+      "prediction": {
+        "track_id": 1,
+        "path_json": "[[32.98816501985504,-96.76365011425666],[32.990862984672795,-96.76365011425666],[32.99356094949054,-96.76365011425666],[32.996258914308314,-96.76365011425666],[32.99895687912607,-96.76365011425666],[33.00165484394382,-96.76365011425666],[33.004352808761574,-96.76365011425666],[33.00705077357934,-96.76365011425666],[33.009748738397086,-96.76365011425666],[33.01244670321485,-96.76365011425666],[33.015144668032605,-96.76365011425666]]",
+        "intercept_lat": 32.99895687912607,
+        "intercept_lon": -96.76365011425666,
+        "eta_s": 120,
+        "updated_ms": 1794153717006
+      }
+    },
+    {
+      "t_ms": 97006,
+      "op": "agent_write_trace",
+      "track_id": 1,
+      "kind": "tool_result",
+      "text": "Published predicted route and intercept point to the map (ETA 120 s)."
+    },
+    {
+      "t_ms": 97006,
+      "op": "agent_write_trace",
+      "track_id": 1,
+      "kind": "summary",
+      "text": "Route prediction refreshed for track #1."
+    },
+    {
+      "t_ms": 118006,
+      "op": "agent_write_trace",
+      "track_id": 1,
+      "kind": "plan",
+      "text": "Refreshing route prediction for track #1"
+    },
+    {
+      "t_ms": 118006,
+      "op": "agent_write_trace",
+      "track_id": 1,
+      "kind": "tool_call",
+      "text": "Calling predict_route(32.9901, -96.7637, 0, 10, 300)"
+    },
+    {
+      "t_ms": 118006,
+      "op": "agent_write_trace",
+      "track_id": 1,
+      "kind": "tool_result",
+      "text": "Predicted 11-point route; intercept at 33.0008, -96.7637 in ~120 s."
+    },
+    {
+      "t_ms": 118006,
+      "op": "agent_write_trace",
+      "track_id": 1,
+      "kind": "tool_call",
+      "text": "Calling agent_set_prediction"
+    },
+    {
+      "t_ms": 118006,
+      "op": "agent_set_prediction",
+      "prediction": {
+        "track_id": 1,
+        "path_json": "[[32.9900535952275,-96.76365011425666],[32.99275156004525,-96.76365011425666],[32.99544952486301,-96.76365011425666],[32.99814748968077,-96.76365011425666],[33.00084545449852,-96.76365011425666],[33.00354341931628,-96.76365011425666],[33.006241384134036,-96.76365011425666],[33.008939348951785,-96.76365011425666],[33.01163731376954,-96.76365011425666],[33.0143352785873,-96.76365011425666],[33.01703324340505,-96.76365011425666]]",
+        "intercept_lat": 33.00084545449852,
+        "intercept_lon": -96.76365011425666,
+        "eta_s": 120,
+        "updated_ms": 1794153738006
+      }
+    },
+    {
+      "t_ms": 118006,
+      "op": "agent_write_trace",
+      "track_id": 1,
+      "kind": "tool_result",
+      "text": "Published predicted route and intercept point to the map (ETA 120 s)."
+    },
+    {
+      "t_ms": 118006,
+      "op": "agent_write_trace",
+      "track_id": 1,
+      "kind": "summary",
+      "text": "Route prediction refreshed for track #1."
+    },
+    {
+      "t_ms": 139006,
+      "op": "agent_write_trace",
+      "track_id": 1,
+      "kind": "plan",
+      "text": "Refreshing route prediction for track #1"
+    },
+    {
+      "t_ms": 139006,
+      "op": "agent_write_trace",
+      "track_id": 1,
+      "kind": "tool_call",
+      "text": "Calling predict_route(32.9919, -96.7637, 0, 10, 300)"
+    },
+    {
+      "t_ms": 139006,
+      "op": "agent_write_trace",
+      "track_id": 1,
+      "kind": "tool_result",
+      "text": "Predicted 11-point route; intercept at 33.0027, -96.7637 in ~120 s."
+    },
+    {
+      "t_ms": 139006,
+      "op": "agent_write_trace",
+      "track_id": 1,
+      "kind": "tool_call",
+      "text": "Calling agent_set_prediction"
+    },
+    {
+      "t_ms": 139006,
+      "op": "agent_set_prediction",
+      "prediction": {
+        "track_id": 1,
+        "path_json": "[[32.99194217060002,-96.76365011425666],[32.99464013541778,-96.76365011425666],[32.99733810023554,-96.76365011425666],[33.00003606505329,-96.76365011425666],[33.00273402987104,-96.76365011425666],[33.005431994688806,-96.76365011425666],[33.008129959506554,-96.76365011425666],[33.01082792432432,-96.76365011425666],[33.013525889142066,-96.76365011425666],[33.01622385395982,-96.76365011425666],[33.018921818777585,-96.76365011425666]]",
+        "intercept_lat": 33.00273402987104,
+        "intercept_lon": -96.76365011425666,
+        "eta_s": 120,
+        "updated_ms": 1794153759006
+      }
+    },
+    {
+      "t_ms": 139006,
+      "op": "agent_write_trace",
+      "track_id": 1,
+      "kind": "tool_result",
+      "text": "Published predicted route and intercept point to the map (ETA 120 s)."
+    },
+    {
+      "t_ms": 139006,
+      "op": "agent_write_trace",
+      "track_id": 1,
+      "kind": "summary",
+      "text": "Route prediction refreshed for track #1."
+    }
+  ]
+}
