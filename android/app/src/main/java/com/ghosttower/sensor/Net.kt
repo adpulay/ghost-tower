@@ -87,7 +87,10 @@ object Reporter {
                 val cols = r.getJSONObject("schema").getJSONArray("elements")
                 fun idx(name: String): Int {
                     for (k in 0 until cols.length()) {
-                        if (cols.getJSONObject(k).optJSONObject("name")?.optString("some") == name) return k
+                        // Column name arrives as {"some": "lat"} or a plain string, depending on server version.
+                        val n = cols.getJSONObject(k).opt("name")
+                        val colName = if (n is JSONObject) n.optString("some") else n as? String
+                        if (colName == name) return k
                     }
                     return -1
                 }

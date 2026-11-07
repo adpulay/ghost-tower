@@ -15,10 +15,10 @@ android {
         versionName = "0.1"
 
         // Emulator reaches the host machine at 10.0.2.2. Override for a real phone:
-        //   ./gradlew assembleDebug -PspacetimeUri=http://<laptop-ip>:3000 -PscoreUrl=http://<brev-host>:8000/score
+        //   ./gradlew assembleDebug -PspacetimeUri=http://<laptop-ip>:3000 -PscoreUrl=http://<brev-host>:8001/score
         val spacetimeUri = (project.findProperty("spacetimeUri") as String?) ?: "http://10.0.2.2:3000"
         val spacetimeDb = (project.findProperty("spacetimeDb") as String?) ?: "ghost-tower"
-        val scoreUrl = (project.findProperty("scoreUrl") as String?) ?: "http://10.0.2.2:8000/score"
+        val scoreUrl = (project.findProperty("scoreUrl") as String?) ?: "http://10.0.2.2:8001/score"
         buildConfigField("String", "SPACETIME_URI", "\"$spacetimeUri\"")
         buildConfigField("String", "SPACETIME_DB", "\"$spacetimeDb\"")
         buildConfigField("String", "SCORE_URL", "\"$scoreUrl\"")

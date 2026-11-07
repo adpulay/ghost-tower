@@ -7,7 +7,7 @@ Role 3. Watches the data network type, catches an SMS during a 2G window, scores
 ## Run
 1. Android Studio → Open `android/` → start an emulator (API 31+ recommended).
 2. Defaults assume the emulator reaches the host at `10.0.2.2`. For a real phone:
-   `./gradlew installDebug -PspacetimeUri=http://<laptop-ip>:3000 -PscoreUrl=http://<brev-host>:8000/score`
+   `./gradlew installDebug -PspacetimeUri=http://<laptop-ip>:3000 -PscoreUrl=http://<brev-host>:8001/score`
 3. Open the app, accept the opt-in, grant permissions.
 
 ## Test 2G without breaking the law (emulator console)
