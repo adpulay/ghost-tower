@@ -1,2 +1,10 @@
+node_modules/
+.env
+.env.*
+!.env.example
+classifier/.venv/
+classifier/model/*.joblib
 __pycache__/
 *.pyc
+agent/logs/
+.DS_Store
