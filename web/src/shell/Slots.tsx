@@ -1,16 +1,14 @@
 import type { ComponentType } from "react";
 import { useTables } from "../spacetime/SpacetimeContext";
+import { TracePanel } from "../trace-panel";
 
 /**
- * Role 1 and Role 2 drop their components in at these paths (default exports).
+ * Role 1 drops the patrol tablet in at web/src/patrol/index.tsx (default export).
  * import.meta.glob resolves at build time and tolerates a missing file, so the
- * shell builds and runs before either role has pushed.
+ * shell builds and runs before Role 1 has pushed.
  */
 const patrolMods = import.meta.glob<{ default: ComponentType }>("../patrol/index.tsx", { eager: true });
-const traceMods = import.meta.glob<{ default: ComponentType }>("../trace-panel/index.tsx", { eager: true });
-
 const Patrol = Object.values(patrolMods)[0]?.default;
-const Trace = Object.values(traceMods)[0]?.default;
 
 export function PatrolSlot() {
   if (Patrol) return <Patrol />;
@@ -22,27 +20,16 @@ export function PatrolSlot() {
   );
 }
 
-/** Fallback shown until Role 2's trace panel exists: a plain list of agent_trace rows. */
-function FallbackTrace() {
-  const { tables } = useTables();
-  const rows = tables.agent_trace.slice(-12).reverse();
-  return (
-    <div className="fallback-trace">
-      {rows.length === 0 && <p className="muted">Waiting for the agent…</p>}
-      {rows.map((r) => (
-        <div key={r.id} className={`trace-row kind-${r.kind}`}>
-          <span className="trace-kind">{r.kind}</span> {r.text}
-        </div>
-      ))}
-    </div>
-  );
-}
-
+/** Role 2's trace panel, fed from the shared Spacetime hook for the live track. */
 export function TracePanelSlot() {
+  const { tables } = useTables();
+  const live = tables.track.filter((t) => t.status === "active" || t.status === "candidate");
+  const track = live[live.length - 1] ?? tables.track[tables.track.length - 1];
+  const traces = track ? tables.agent_trace.filter((r) => r.track_id === track.id) : [];
   return (
     <section className="side-panel">
       <h2>Agent trace</h2>
-      {Trace ? <Trace /> : <FallbackTrace />}
+      <TracePanel track={track} traces={traces} />
     </section>
   );
 }
