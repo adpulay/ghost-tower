@@ -4,8 +4,6 @@ import { SpacetimeDBProvider } from "spacetimedb/react";
 import { DbConnection, SPACETIME_DB, SPACETIME_HOST } from "../module_bindings";
 import PatrolView from "../patrol/PatrolView";
 import { useTables } from "../spacetime/SpacetimeContext";
-import { TracePanel } from "../trace-panel";
-import { useFocusTrack } from "./IncidentPanel";
 
 /**
  * Role 1's patrol tablet reads tables through `spacetimedb/react`, so it needs a real
@@ -24,14 +22,17 @@ export function PatrolSlot() {
     return (
       <div className="placeholder">
         <div className="placeholder-inner">
-          <h2>Patrol tablet needs a live feed</h2>
+          <h1>Patrol view isn't available in the demo</h1>
           <p>
-            It reads straight from a Spacetime host and does not run on the simulated feed. Publish the module, then
-            set <code>VITE_SPACETIME_URI</code> in <code>web/.env</code> or open this page with{" "}
-            <code>?source=live</code>.
+            The patrol view only works when Ghost Tower is connected to real phone reports. The overview is running on
+            demo data right now, so there is nothing for an officer to follow.
+          </p>
+          <p className="muted">
+            For setup: publish the module, then set <code>VITE_SPACETIME_URI</code> in <code>web/.env</code> or open this
+            page with <code>?source=live</code>.
           </p>
           <p>
-            <Link to="/">Back to the analyst map</Link>
+            <Link to="/">Back to the overview</Link>
           </p>
         </div>
       </div>
@@ -41,21 +42,5 @@ export function PatrolSlot() {
     <SpacetimeDBProvider connectionBuilder={builder}>
       <PatrolView />
     </SpacetimeDBProvider>
-  );
-}
-
-/** Role 2's trace panel, fed from the shared Spacetime hook for the live track. */
-export function TracePanelSlot() {
-  const { tables } = useTables();
-  const track = useFocusTrack();
-  const traces = track ? tables.agent_trace.filter((r) => r.track_id === track.id) : [];
-  return (
-    <section className="side-log" aria-label="Agent log">
-      <header className="side-log-head">
-        <h2>Agent log</h2>
-        <span>Nemotron, newest at the bottom</span>
-      </header>
-      <TracePanel track={track} traces={traces} showHeader={false} />
-    </section>
   );
 }

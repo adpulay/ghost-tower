@@ -76,3 +76,4 @@ Every 3 s, `recluster` takes the last 120 s of events with fusion >= 0.3. It clu
 | Web `liveSource.ts` wired to Spacetime | done via Role 1's bindings; unit-tested with a fake connection, **never run against a real server** |
 | Agent uses Role 1's `predict_route` | done (ported to TypeScript; tested offline, live OSRM path untested) |
 | Android app compiled | **todo**, needs Android Studio |
+

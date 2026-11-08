@@ -1,15 +1,15 @@
-/* Patrol tablet. Used in a car in daylight, so it is the light counterpart of the console:
-   dark navy status bar, light map, near-black type. Touch targets >= 56 px. */
+/* Patrol tablet. Used in a car in daylight: white bars, grey map, near-black type, the same
+   carrier magenta rule as the console. Touch targets >= 56 px. */
 .patrol {
-  --patrol-bg: #eef1f5;
-  --patrol-fg: #0c1828;
-  --patrol-muted: #4d5f77;
-  --patrol-rule: #c9d2de;
-  --patrol-bar: #0c1828;
-  --patrol-eta: #0c1828;
+  --patrol-bg: #f1f2f4;
+  --patrol-fg: #101317;
+  --patrol-muted: #677180;
+  --patrol-rule: #e2e5e9;
+  --patrol-bar: #ffffff;
+  --patrol-eta: #101317;
   --patrol-route: #1257c7;
   --patrol-carrier: #e20074;
-  --patrol-hostile: #d62828;
+  --patrol-hostile: #d42a3a;
   position: fixed;
   inset: 0;
   display: grid;
@@ -26,15 +26,17 @@
   min-height: 84px;
   padding: 14px 24px;
   background: var(--patrol-bar);
-  color: #fff;
-  font: 600 clamp(22px, 3.1vw, 34px)/1.15 "Barlow Condensed", "Arial Narrow", sans-serif;
+  color: var(--patrol-fg);
+  font: 700 clamp(21px, 2.8vw, 30px)/1.2 "Barlow", "Segoe UI", sans-serif;
+  letter-spacing: -.01em;
   border-bottom: 4px solid var(--patrol-carrier);
 }
 .patrol-dot {
   flex: none;
-  width: 18px;
-  height: 18px;
-  background: #6d7f97;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: #9aa4b2;
 }
 .patrol-dot.live {
   background: var(--patrol-hostile);
@@ -75,7 +77,7 @@
   color: var(--patrol-eta);
 }
 .patrol-big {
-  font: 600 32px/1.1 "Barlow Condensed", "Arial Narrow", sans-serif;
+  font: 700 28px/1.15 "Barlow", "Segoe UI", sans-serif;
 }
 .patrol-sub { margin-top: 2px; color: var(--patrol-muted); }
 .patrol-target-info {
@@ -92,7 +94,7 @@
   min-height: 56px;
   padding: 0 20px;
   border: 2px solid var(--patrol-fg);
-  border-radius: 3px;
+  border-radius: 999px;
   background: #fff;
   color: var(--patrol-fg);
   font: 600 20px "Barlow", "Segoe UI", sans-serif;
