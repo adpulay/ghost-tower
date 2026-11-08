@@ -10,6 +10,7 @@ import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 import './patrol.css';
 import { usePatrolData } from './usePatrolData.ts';
+import { TopBar } from '../shell/TopBar';
 import { hostileSvg, interceptSvg } from '../shell/symbols';
 import {
   activeTracks, compass, etaRemaining, formatEta, parsePath, pickTarget, statusLine, type TrackRow,
@@ -78,6 +79,7 @@ export default function PatrolView() {
 
   return (
     <div className="patrol">
+      <TopBar />
       <header className="patrol-status" role="status" aria-live="polite">
         <span className={`patrol-dot ${target ? 'live' : ''}`} />
         <span className="patrol-status-text">{ready ? line : 'Connecting…'}</span>

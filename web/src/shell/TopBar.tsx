@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { NavLink } from "react-router-dom";
+import { useAuth } from "../auth/AuthContext";
 import { useTables } from "../spacetime/SpacetimeContext";
 import { towerMark } from "./symbols";
 
@@ -16,6 +17,7 @@ function useClock() {
 
 export function TopBar() {
   const { status, debug } = useTables();
+  const { signOut } = useAuth();
   const now = useClock();
 
   return (
@@ -41,6 +43,7 @@ export function TopBar() {
         <time className="clock" dateTime={now.toISOString()}>
           {now.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}
         </time>
+        <button type="button" className="topbar-logout" onClick={signOut}>Log out</button>
       </div>
     </header>
   );
