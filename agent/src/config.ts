@@ -12,9 +12,13 @@ export function loadDotEnv(path = resolve(process.cwd(), ".env")): void {
       const m = line.match(/^\s*([A-Z0-9_]+)\s*=\s*(.*)\s*$/i);
       if (!m || line.trim().startsWith("#")) continue;
       const key = m[1];
-      let val = m[2];
-      if ((val.startsWith('"') && val.endsWith('"')) || (val.startsWith("'") && val.endsWith("'"))) {
+      // Trim, and drop an inline "  # comment" from unquoted values: lines copied from .env.example carry
+      // both, and "0  " is not "0" (NEMOTRON_THINKING=0 silently stayed off, ~17x slower steps).
+      let val = m[2].trim();
+      if ((val.startsWith('"') && val.endsWith('"') && val.length >= 2) || (val.startsWith("'") && val.endsWith("'") && val.length >= 2)) {
         val = val.slice(1, -1);
+      } else {
+        val = val.replace(/\s+#.*$/, "").trim();
       }
       if (process.env[key] === undefined) process.env[key] = val;
     }
