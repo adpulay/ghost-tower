@@ -47,7 +47,7 @@ test("investigate: required tools called, all reducers written, trace lines ≤1
   assert.equal(w.tracks.get(3)!.status, "active");
 });
 
-test("loop is capped at 8 steps", async () => {
+test("loop is capped at 12 steps", async () => {
   const looping: ChatModel = {
     name: "loop",
     async chat(): Promise<ChatResponse> {
@@ -56,9 +56,73 @@ test("loop is capped at 8 steps", async () => {
   };
   const w = world();
   const r = await new Investigator(w, looping, { now: () => NOW }).run(TRACK, "investigate");
-  assert.equal(r.steps, 8);
+  assert.equal(r.steps, 12);
   assert.equal(r.aborted, "step_cap");
   assert.equal(w.traces.at(-1)!.kind, "summary");
+});
+
+/** Plays back a fixed list of replies: each is a list of tool names (one turn) or a final string. */
+function scripted(turns: (string[] | string)[]): ChatModel & { seen: string[] } {
+  let i = 0;
+  const seen: string[] = [];
+  return {
+    name: "scripted",
+    seen,
+    async chat(messages): Promise<ChatResponse> {
+      const last = messages.at(-1)!;
+      if (last.role === "user") seen.push(last.content ?? "");
+      const turn = turns[Math.min(i++, turns.length - 1)];
+      if (typeof turn === "string") return { content: turn, tool_calls: [] };
+      return {
+        content: null,
+        tool_calls: turn.map((name, k) => ({ id: `c${i}_${k}`, type: "function", function: { name, arguments: argsFor(name) } })),
+      };
+    },
+  };
+}
+function argsFor(name: string): string {
+  if (name === "rdap_domain_age") return JSON.stringify({ domain: "txtag-pay-demo.example" });
+  if (name === "agent_link_campaign") return JSON.stringify({ url_hash: urlHash("txtag-pay-demo.example"), brand: "TxTag", age_days: 2 });
+  if (name === "carrier_smsc_lookup") return JSON.stringify({ url_hash: urlHash("txtag-pay-demo.example"), ts_ms: NOW });
+  if (name === "predict_route") return JSON.stringify({ lat: 32.9858, lon: -96.77, heading_deg: 90, speed_mps: 11, horizon_s: 300 });
+  if (name === "draft_report") return JSON.stringify({ track_id: 3, kind: "warning" });
+  return "{}";
+}
+
+test("a model that stops early is reminded of the missing steps and finishes", async () => {
+  // What live Nemotron did once: one tool, then an empty reply.
+  const model = scripted([
+    ["rdap_domain_age"],
+    "",
+    ["agent_link_campaign", "carrier_smsc_lookup"],
+    ["predict_route"],
+    ["agent_set_prediction"],
+    ["draft_report"],
+    ["send_warning"],
+    ["agent_record_alert"],
+    "TxTag lure from a 2-day-old domain; route predicted east; phones warned.",
+  ]);
+  const w = world();
+  const r = await new Investigator(w, model, { now: () => NOW }).run(TRACK, "investigate");
+  assert.equal(r.nudges, 1);
+  assert.match(model.seen.at(-1)!, /still requires .*agent_link_campaign/);
+  assert.equal(w.alerts.length, 1);
+  assert.match(w.traces.at(-1)!.text, /phones warned/);
+});
+
+test("nudges are limited, so a model that keeps stopping still ends the run", async () => {
+  const model = scripted([["rdap_domain_age"], ""]);
+  const r = await new Investigator(world(), model, { now: () => NOW }).run(TRACK, "investigate");
+  assert.equal(r.nudges, 2);
+  assert.ok(!r.aborted);
+});
+
+test("a summary claiming a warning that was never sent is replaced", async () => {
+  const model = scripted([["predict_route"], ["agent_set_prediction"], "Track heading east; warning broadcast to 41 phones."]);
+  const w = world();
+  const r = await new Investigator(w, model, { now: () => NOW }).run(TRACK, "refresh");
+  assert.equal(r.claimedUnsentWarning, true);
+  assert.doesNotMatch(w.traces.at(-1)!.text, /41 phones|broadcast/);
 });
 
 test("model failure (e.g. 20 s timeout) is retried once then reported, not thrown", async () => {
@@ -117,4 +181,11 @@ test("write tools are pinned to the investigated track", async () => {
   await new Investigator(w, sneaky, { now: () => NOW }).run(TRACK, "investigate");
   assert.ok(w.tracks.get(3)!.campaign_id > 0);
   assert.equal(w.tracks.get(999), undefined);
+});
+
+test("an empty final reply gets a readable evidence-only summary", async () => {
+  const model = scripted([["predict_route"], ["agent_set_prediction"], ""]);
+  const w = world();
+  await new Investigator(w, model, { now: () => NOW }).run(TRACK, "refresh");
+  assert.equal(w.traces.at(-1)!.text, "Track #3: route predicted.");
 });
