@@ -32,6 +32,7 @@ const tablesSchema = __schema({
   alert: __table({ name: 'alert' }, C.alert(__t)),
   sim_truth: __table({ name: 'sim_truth' }, C.sim_truth(__t)),
   dev_config: __table({ name: 'dev_config' }, C.dev_config(__t)),
+  case_report: __table({ name: 'case_report' }, C.case_report(__t)),
 });
 
 const reducersSchema = __reducers(
@@ -40,9 +41,12 @@ const reducersSchema = __reducers(
   __reducerSchema('agent_set_prediction', R.agent_set_prediction(__t)),
   __reducerSchema('agent_link_campaign', R.agent_link_campaign(__t)),
   __reducerSchema('agent_record_alert', R.agent_record_alert(__t)),
+  __reducerSchema('agent_save_report', R.agent_save_report(__t)),
   __reducerSchema('sim_write_truth', R.sim_write_truth(__t)),
   __reducerSchema('dev_set_fusion_weights', R.dev_set_fusion_weights(__t)),
   __reducerSchema('reset_world', {}),
+  __reducerSchema('claim_operator', {}),
+  __reducerSchema('check_operator', {}),
 );
 
 const proceduresSchema = __procedures();
@@ -78,6 +82,7 @@ export function connect(opts: { host?: string; db?: string } = {}): Promise<DbCo
     DbConnection.builder()
       .withUri(opts.host ?? SPACETIME_HOST)
       .withDatabaseName(opts.db ?? SPACETIME_DB)
+      .withToken(env.SPACETIME_TOKEN || undefined) // the sim's reducers are operator-only
       .onConnect(conn => resolve(conn))
       .onConnectError((_ctx, err) => reject(err))
       .build();

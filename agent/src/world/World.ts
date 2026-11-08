@@ -20,4 +20,5 @@ export interface World {
   agentSetPrediction(p: Prediction): Promise<void>;
   agentLinkCampaign(trackId: number, urlHash: string, brand: string, domainAgeDays: number): Promise<void>;
   agentRecordAlert(a: Omit<Alert, "id">): Promise<void>;
+  agentSaveReport(trackId: number, kind: "police" | "registrar", text: string, generated: boolean): Promise<void>;
 }

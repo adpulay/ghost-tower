@@ -131,6 +131,7 @@ Names and fields are fixed once agreed. Types are written generically; Role 1 ma
 | `agent_set_prediction` | agent | `prediction` fields | upserts `prediction` |
 | `agent_link_campaign` | agent | `track_id, url_hash, brand, domain_age_days` | upserts `campaign`, sets `track.campaign_id` |
 | `agent_record_alert` | agent | `alert` fields | inserts `alert` |
+| `agent_save_report` | agent | `track_id, kind, text, generated` | upserts one `case_report` per track + kind (`police`, `registrar`) |
 | `sim_write_truth` | simulator | `sim_truth` fields | inserts truth row |
 | `reset_world` | dev only | none | clears all tables (for rehearsals); keeps `dev_config` weights and the recluster schedule |
 | `dev_set_fusion_weights` | dev only (Role 1 ablation) | `w_rat, w_sms, w_smsc, smsc_bonus` | sets the §4 weights for events ingested **after** the call |
@@ -240,6 +241,10 @@ Announced in chat before pushing, per the rule at the top.
 | `w_rat`, `w_sms`, `w_smsc` | f32 | §4 fusion weights (default 0.45 / 0.35 / 0.20) |
 | `smsc_bonus` | f32 | recluster confidence bonus when any event has `smsc_match == "no"` (default 0.1) |
 | `sim_now_ms` | u64 | latest `sim_truth.ts_ms`; `recluster` uses `max(server time, sim_now_ms)` as "now" so `sim run --speed 4x` ages events on sim time. `reset_world` sets it back to 0. |
+
+**`case_report`**: the evidence packet, public. `id` (u64), `track_id` (u64), `kind` (`police` or `registrar`), `text`, `generated` (false when a fixed template was used), `updated_ms` (u64).
+
+**Access:** only `report_anomaly` is open to anonymous callers. Every other reducer needs an identity in the private `operator` table (the publisher, or the first caller of `claim_operator` on an older database). `check_operator` fails for anyone else, which is how `npm run preflight` tests a token. `report_anomaly` refuses `ts_ms` more than 60 s ahead of the world clock.
 
 **Other notes:**
 - `recluster_schedule` is a private scheduled table (one row, 3 s interval). Clients never call `recluster`.

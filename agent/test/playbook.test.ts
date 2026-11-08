@@ -114,6 +114,31 @@ test("no route means no warning, and the log says so", async () => {
   }
 });
 
+test("evidence: the packet is saved after the warning and labelled as template text when no model wrote it", async () => {
+  const w = world();
+  const pb = new PlaybookInvestigator(w, { now: () => NOW });
+  await pb.run(TRACK, "investigate");
+  await pb.flushTraces();
+  assert.equal(w.alerts.length, 1);
+  const police = w.reports.get("3:police");
+  const registrar = w.reports.get("3:registrar");
+  assert.ok(police && registrar, "both reports saved");
+  assert.equal(police.generated, false, "the mock provider uses templates and must say so");
+  assert.match(police.text, /SMS blaster suspect, track #3/);
+  assert.match(registrar.text, /txtag-pay-demo\.example/);
+  assert.equal(w.traces.at(-1)!.kind, "summary", "evidence writes add nothing to the log");
+});
+
+test("evidence: a failed save never affects the warning", async () => {
+  const w = world();
+  w.agentSaveReport = async () => { throw new Error("database busy"); };
+  const pb = new PlaybookInvestigator(w, { now: () => NOW });
+  const r = await pb.run(TRACK, "investigate");
+  await pb.flushTraces();
+  assert.equal(w.alerts.length, 1);
+  assert.deepEqual(r.errors, []);
+});
+
 test("log writes do not block the actions: the run returns before the log has caught up, in order", async () => {
   const w = world();
   const realTrace = w.agentWriteTrace.bind(w);

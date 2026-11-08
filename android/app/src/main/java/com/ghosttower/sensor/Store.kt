@@ -32,6 +32,16 @@ object Prefs {
         get() = prefs().getBoolean("notify", true)
         set(v) = prefs().edit().putBoolean("notify", v).apply()
 
+    /** The first-run permission prompt has been answered, whatever the answer was. */
+    var onboarded: Boolean
+        get() = prefs().getBoolean("onboarded", false)
+        set(v) = prefs().edit().putBoolean("onboarded", v).apply()
+
+    /** The scam checker address set in the app, or null to use the one built into the APK. */
+    var scoreUrl: String?
+        get() = prefs().getString("score_url", null)
+        set(v) = prefs().edit().putString("score_url", v?.takeIf { it.isNotBlank() }).apply()
+
     fun blockedLinks(): List<String> = (prefs().getStringSet("blocked", emptySet()) ?: emptySet()).sorted()
 
     fun setBlocked(domain: String, blocked: Boolean) {
@@ -60,11 +70,13 @@ data class ThreatEvent(
     val preview: String,
     val blocked: Boolean = false,
     val reported: Boolean = false,
+    /** The scam checker couldn't be reached, so `score` is the demo's sample value and not a real result. */
+    val offlineScore: Boolean = false,
 ) {
     fun toJson(): JSONObject = JSONObject()
         .put("id", id).put("ts", ts).put("kind", kind).put("title", title).put("detail", detail)
         .put("score", score.toDouble()).put("brand", brand).put("domain", domain).put("preview", preview)
-        .put("blocked", blocked).put("reported", reported)
+        .put("blocked", blocked).put("reported", reported).put("offlineScore", offlineScore)
 
     companion object {
         fun fromJson(o: JSONObject) = ThreatEvent(
@@ -72,6 +84,7 @@ data class ThreatEvent(
             detail = o.getString("detail"), score = o.optDouble("score", 0.0).toFloat(), brand = o.optString("brand"),
             domain = o.optString("domain"), preview = o.optString("preview"),
             blocked = o.optBoolean("blocked"), reported = o.optBoolean("reported"),
+            offlineScore = o.optBoolean("offlineScore"),
         )
     }
 }

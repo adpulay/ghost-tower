@@ -1,19 +1,19 @@
-// Live rows for the patrol view. Uses `spacetimedb/react` under the SpacetimeDBProvider from
-// Role 3's app shell, and the bindings at web/src/module_bindings (generated with
-// `spacetime generate`, or copied from spacetime/bindings). Note: no anomaly_event and no
-// sim_truth here; the officer only needs where to go.
-import { useTable } from 'spacetimedb/react';
-import { tables } from '../module_bindings';
+// Rows for the patrol view, from the app's one shared connection, so the tablet also works on simulated data.
+// No anomaly_event and no sim_truth here: the officer only needs where to go.
+import { useMemo } from 'react';
+import { useTables } from '../spacetime/SpacetimeContext';
 import type { PredictionRow, TraceRow, TrackRow } from './patrolModel.ts';
 
 export function usePatrolData() {
-  const [tracks, t1] = useTable(tables.track);
-  const [predictions, t2] = useTable(tables.prediction);
-  const [traces, t3] = useTable(tables.agent_trace.where(r => r.kind.eq('replan')));
-  return {
-    tracks: tracks as readonly TrackRow[],
-    predictions: predictions as readonly PredictionRow[],
-    traces: traces as readonly TraceRow[],
-    ready: t1 && t2 && t3,
-  };
+  const { tables, status } = useTables();
+  return useMemo(() => {
+    const tracks: TrackRow[] = tables.track.map(t => ({ ...t, id: BigInt(t.id), updated_ms: BigInt(t.updated_ms) }));
+    const predictions: PredictionRow[] = tables.prediction.map(p => ({
+      ...p, track_id: BigInt(p.track_id), updated_ms: BigInt(p.updated_ms),
+    }));
+    const traces: TraceRow[] = tables.agent_trace
+      .filter(r => r.kind === 'replan')
+      .map(r => ({ ...r, id: BigInt(r.id), track_id: BigInt(r.track_id), ts_ms: BigInt(r.ts_ms) }));
+    return { tracks, predictions, traces, ready: status === 'connected', lost: status === 'error' };
+  }, [tables, status]);
 }

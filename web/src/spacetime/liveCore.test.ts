@@ -81,13 +81,13 @@ test("nothing is emitted until the subscription is applied; then the status is c
   stop();
 });
 
-test("subscribes to the six public tables, and to sim_truth only in debug mode", () => {
+test("subscribes to the seven public tables, and to sim_truth only in debug mode", () => {
   for (const debug of [false, true]) {
     const w = fakeWorld();
     const { stop } = run(w, debug);
     w.connected();
     const q = w.subscribed[0];
-    assert.equal(q.length, debug ? 7 : 6);
+    assert.equal(q.length, debug ? 8 : 7);
     assert.equal(q.includes("SELECT * FROM sim_truth"), debug);
     assert.ok(q.includes("SELECT * FROM track") && q.includes("SELECT * FROM agent_trace"));
     stop();

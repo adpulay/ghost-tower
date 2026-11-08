@@ -72,6 +72,16 @@ export const TABLE_COLUMNS = {
     lon: t.f64(),
     on_air: t.bool(),
   }),
+  // Evidence packet for a track: the police brief and the registrar abuse report (one row per track + kind).
+  // `generated` is false when the fixed template was used instead of model text, so the UI can say which it is.
+  case_report: (t: TB) => ({
+    id: t.u64().primaryKey().autoInc(),
+    track_id: t.u64().index('btree'),
+    kind: t.string(),
+    text: t.string(),
+    generated: t.bool(),
+    updated_ms: t.u64(),
+  }),
   // Role 1 dev knobs (single row, id = 0): fusion weights for the ablation, and the
   // simulator clock so `--speed 4x` runs age events on sim time, not wall time.
   dev_config: (t: TB) => ({
@@ -109,13 +119,15 @@ export const REDUCER_PARAMS = {
   }),
   agent_link_campaign: (t: TB) => ({ track_id: t.u64(), url_hash: t.string(), brand: t.string(), domain_age_days: t.i32() }),
   agent_record_alert: (t: TB) => ({ track_id: t.u64(), zone_json: t.string(), message: t.string(), sent_ms: t.u64(), recipients: t.u32() }),
+  agent_save_report: (t: TB) => ({ track_id: t.u64(), kind: t.string(), text: t.string(), generated: t.bool() }),
   sim_write_truth: (t: TB) => ({ scenario: t.string(), ts_ms: t.u64(), lat: t.f64(), lon: t.f64(), on_air: t.bool() }),
   dev_set_fusion_weights: (t: TB) => ({ w_rat: t.f32(), w_sms: t.f32(), w_smsc: t.f32(), smsc_bonus: t.f32() }),
 } as const;
 
 /** Tables every client may subscribe to. */
 export const PUBLIC_TABLES = [
-  'anomaly_event', 'track', 'campaign', 'agent_trace', 'prediction', 'alert', 'sim_truth', 'dev_config',
+  'anomaly_event', 'track', 'campaign', 'agent_trace', 'prediction', 'alert', 'sim_truth', 'dev_config', 'case_report',
 ] as const;
 
 export const TRACE_KINDS = ['plan', 'tool_call', 'tool_result', 'replan', 'summary'] as const;
+export const REPORT_KINDS = ['police', 'registrar'] as const;

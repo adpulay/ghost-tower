@@ -31,7 +31,7 @@ export interface ConnectHandlers {
 export type ConnectFn = (h: ConnectHandlers) => { disconnect(): void };
 
 /** Tables mirrored into the app. sim_truth is added only in debug mode. */
-const TABLES = ["anomaly_event", "track", "campaign", "agent_trace", "prediction", "alert"] as const;
+const TABLES = ["anomaly_event", "track", "campaign", "agent_trace", "prediction", "alert", "case_report"] as const;
 
 /** Bounds so a long run can't grow the React state without limit. The map shows 120 s anyway. */
 const CAPS = { anomaly_event: 2000, agent_trace: 300, sim_truth: 400 } as const;
@@ -62,6 +62,7 @@ export function snapshot(conn: LiveConn, debug: boolean): Tables {
     agent_trace: rowsOf(conn, "agent_trace", CAPS.agent_trace, "ts_ms"),
     prediction: rowsOf(conn, "prediction"),
     alert: rowsOf(conn, "alert", undefined, "sent_ms"),
+    case_report: rowsOf(conn, "case_report"),
     sim_truth: debug ? rowsOf(conn, "sim_truth", CAPS.sim_truth, "ts_ms") : [],
     mock_phones: [],
   };

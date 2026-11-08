@@ -33,6 +33,11 @@ export class RecordingWorld implements World {
     return n - this.t0;
   }
 
+  // Evidence reports aren't part of a recorded replay: they pass straight through.
+  agentSaveReport(trackId: number, kind: "police" | "registrar", text: string, generated: boolean) {
+    return this.inner.agentSaveReport(trackId, kind, text, generated);
+  }
+
   listTracks() {
     return this.inner.listTracks();
   }

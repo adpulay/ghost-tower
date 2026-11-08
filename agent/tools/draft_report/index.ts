@@ -17,6 +17,12 @@ import { renderPrompt, type PromptFacts } from "./prompts.js";
 
 export type ReportKind = "police" | "registrar" | "warning";
 
+/** `generated` is false when the fixed template was used, so nothing presents a template as model output. */
+export interface DraftResult {
+  text: string;
+  generated: boolean;
+}
+
 export const POLICE_MAX_LINES = 5;
 // Measured on the real Brev Nemotron (reasoning on): median 4.3 s, max 7.5 s over 20 warnings. 12 s leaves
 // headroom without exceeding the agent's own 20 s model timeout. Do not set NEMOTRON_THINKING=0 for this
@@ -162,13 +168,13 @@ const clean = (s: string) => s.trim().replace(/^["'“]+|["'”]+$/g, "").trim()
 export async function draftReport(
   input: { track_id: number; kind: ReportKind },
   deps: DraftReportDeps,
-): Promise<{ text: string }> {
+): Promise<DraftResult> {
   const kinds: ReportKind[] = ["police", "registrar", "warning"];
   if (!kinds.includes(input.kind)) throw new Error(`draft_report: kind must be one of ${kinds.join(", ")}`);
 
   const facts = await gatherFacts(input.track_id, deps);
   const fixed = template(input.kind, facts);
-  if (!deps.llm) return { text: fixed };
+  if (!deps.llm) return { text: fixed, generated: false };
 
   try {
     const prompt = renderPrompt(input.kind, facts);
@@ -180,12 +186,12 @@ export async function draftReport(
     const problem = check(input.kind, text, facts);
     if (problem) {
       deps.log?.({ tool: "draft_report", kind: input.kind, fallback: true, reason: problem });
-      return { text: fixed };
+      return { text: fixed, generated: false };
     }
-    return { text };
+    return { text, generated: true };
   } catch (e) {
     deps.log?.({ tool: "draft_report", kind: input.kind, fallback: true, reason: String((e as Error).message) });
-    return { text: fixed };
+    return { text: fixed, generated: false };
   }
 }
 
@@ -198,7 +204,7 @@ function getDefaultModel(): ChatModel | undefined {
   return defaultModel ?? undefined;
 }
 
-export const draftReportTool: ToolDef<{ track_id: number; kind: ReportKind }, { text: string }> = {
+export const draftReportTool: ToolDef<{ track_id: number; kind: ReportKind }, DraftResult> = {
   name: "draft_report",
   description:
     "Write text for a response action. kind='warning' is the public SMS warning (≤160 chars, no links); 'police' is the intercept brief; 'registrar' is the domain abuse report.",

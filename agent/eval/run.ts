@@ -154,7 +154,6 @@ async function main() {
     "Notes:",
     "- \"Seconds to first prediction\" is measured from the track turning `active` and includes real model latency.",
     "- The safety check reads the tool log: demo `*.example` domains are always canned and unlisted domains are refused, so no live phishing domain can be queried.",
-    "- `predict_route` and `draft_report` are Role 2's stubs until Roles 1 and 3 deliver theirs; re-run after swapping them in.",
     "",
   ].join("\n");
   writeFileSync(out, md);

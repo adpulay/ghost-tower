@@ -9,8 +9,11 @@ import android.graphics.drawable.RippleDrawable
 import android.os.Handler
 import android.os.Looper
 import android.provider.Settings
+import android.telephony.TelephonyManager
+import android.text.InputType
 import android.view.Gravity
 import android.view.View
+import android.widget.EditText
 import android.widget.FrameLayout
 import android.widget.LinearLayout
 import android.widget.ScrollView
@@ -42,6 +45,8 @@ class AppUi(private val act: Activity) {
     private val handler = Handler(Looper.getMainLooper())
     private val clock = SimpleDateFormat("MMM d, h:mm a", Locale.getDefault())
     private var tab = Tab.HOME
+    private var renderedTab: Tab? = null
+    private var renderedState: List<Any?> = emptyList()
     private val tabViews = mutableMapOf<Tab, Pair<IconView, TextView>>()
 
     private val tick = object : Runnable {
@@ -67,8 +72,21 @@ class AppUi(private val act: Activity) {
     fun start() { handler.removeCallbacks(tick); handler.postDelayed(tick, 5_000) }
     fun stop() { handler.removeCallbacks(tick) }
 
-    /** Data changed elsewhere (a detection, a status change). Don't rebuild Network: the user may be typing there. */
-    fun onExternalChange() { if (tab != Tab.NETWORK) render() }
+    /**
+     * Data may have changed elsewhere (a detection, a status change, the 5 s tick). Rebuilding a screen restarts its
+     * animation and can move the list under the user's finger, so only rebuild when what it shows has changed.
+     * Network and Settings are left alone: Settings has a text field the user may be typing in.
+     */
+    fun onExternalChange() {
+        if (tab == Tab.NETWORK || tab == Tab.SETTINGS) return
+        if (visibleState() != renderedState) render()
+    }
+
+    private fun visibleState(): List<Any?> {
+        val events = EventLog.all()
+        // The minute bucket keeps "3 min ago" labels moving.
+        return listOf(hero(), radio.networkName(), events.size, events.firstOrNull()?.id, System.currentTimeMillis() / 60_000)
+    }
 
     fun onBack(): Boolean {
         if (overlay.visibility != View.VISIBLE) return false
@@ -99,15 +117,18 @@ class AppUi(private val act: Activity) {
     }
 
     fun render() {
+        val keepY = if (renderedTab == tab) (content.getChildAt(0) as? ScrollView)?.scrollY ?: 0 else 0
+        renderedTab = tab
+        renderedState = visibleState()
         content.removeAllViews()
-        content.addView(
-            when (tab) {
-                Tab.HOME -> homeView()
-                Tab.ALERTS -> alertsView()
-                Tab.NETWORK -> networkView()
-                Tab.SETTINGS -> settingsView()
-            },
-        )
+        val screen = when (tab) {
+            Tab.HOME -> homeView()
+            Tab.ALERTS -> alertsView()
+            Tab.NETWORK -> networkView()
+            Tab.SETTINGS -> settingsView()
+        }
+        content.addView(screen)
+        if (keepY > 0) screen.post { screen.scrollTo(0, keepY) }
         tabViews.forEach { (t, v) ->
             val c = if (t == tab) Ui.p.magenta else Ui.p.muted
             v.first.tint = c
@@ -138,7 +159,7 @@ class AppUi(private val act: Activity) {
 
     private fun hero(): Hero {
         val now = System.currentTimeMillis()
-        if (!Prefs.shieldOn) return Hero(SignalState.ATTENTION, "Tower watch is paused", "Turn it back on to be warned about fake cell towers.")
+        if (!Prefs.shieldOn) return Hero(SignalState.ATTENTION, "Tower watch is paused", "Turn it back on to see the demo alerts.")
         if (EventLog.all().any { it.kind == "text" && now - it.ts < 90_000 }) {
             return Hero(SignalState.ALERT, "Fake tower nearby", "Your phone was pulled onto a fake tower. Don't tap links in new texts.")
         }
@@ -146,7 +167,9 @@ class AppUi(private val act: Activity) {
             return Hero(SignalState.ATTENTION, "Fake tower heading your way", "Ghost Tower warned you before it reached you. Don't tap links in new texts.")
         }
         Pipeline.problem?.let { return Hero(SignalState.ATTENTION, "Needs attention", it) }
-        return Hero(SignalState.CLEAR, "Your signal looks clear", "Ghost Tower is watching for fake cell towers around you.")
+        if (Pipeline.linkOk == false) return Hero(SignalState.ATTENTION, "Can't reach the demo", "Alerts won't appear until the connection is back.")
+        // This build has no real detector, so it must not tell anyone they are safe.
+        return Hero(SignalState.CLEAR, "Waiting for the demo", "The simulated fake tower will trigger an alert here. This build doesn't scan for real ones yet.")
     }
 
     private fun homeView(): View = screen(null) {
@@ -232,7 +255,9 @@ class AppUi(private val act: Activity) {
 
     /** Your phone's real network, with the attack's tell-tale sign: being pushed down to 2G. */
     private fun connectionCard(): View {
-        val risky = Pipeline.is2G(radio.networkType())
+        val type = radio.networkType()
+        val risky = Pipeline.is2G(type)
+        val known = type != TelephonyManager.NETWORK_TYPE_UNKNOWN
         return act.card(18).apply {
             addView(
                 act.hbox().apply {
@@ -244,7 +269,13 @@ class AppUi(private val act: Activity) {
                         },
                         act.lp(w = 0, weight = 1f),
                     )
-                    addView(if (risky) act.pill("On 2G: risky", Ui.p.red, Ui.p.redWash) else act.pill("No fake-tower signs", Ui.p.green, Ui.p.greenWash))
+                    addView(
+                        when {
+                            risky -> act.pill("On 2G: risky", Ui.p.red, Ui.p.redWash)
+                            known -> act.pill("Not on 2G", Ui.p.green, Ui.p.greenWash)
+                            else -> act.pill("Not available", Ui.p.muted, Ui.p.bg)
+                        },
+                    )
                 },
             )
             addView(
@@ -301,9 +332,9 @@ class AppUi(private val act: Activity) {
     private fun emptyState(): View = act.card(28).apply {
         gravity = Gravity.CENTER_HORIZONTAL
         addView(iconDisc(Glyph.TOWER, Ui.p.magenta, Ui.p.magentaWash), act.lp(w = dp(64), h = dp(64)))
-        addView(act.text("All clear", 20f, Ui.p.ink, bold = true).apply { gravity = Gravity.CENTER }, act.lp(t = 14))
+        addView(act.text("No alerts yet", 20f, Ui.p.ink, bold = true).apply { gravity = Gravity.CENTER }, act.lp(t = 14))
         addView(
-            act.text("No fake towers spotted. When Ghost Tower detects one, it shows up here. Tap an alert for details.", 15f, Ui.p.ink2).apply { gravity = Gravity.CENTER },
+            act.text("When the simulated fake tower reaches your spot, it shows up here. Tap an alert for details.", 15f, Ui.p.ink2).apply { gravity = Gravity.CENTER },
             act.lp(t = 6),
         )
     }
@@ -419,7 +450,7 @@ class AppUi(private val act: Activity) {
     private fun settingsView(): View = screen("Settings") {
         addView(
             act.card(0).apply {
-                addView(switchRow("Tower watch", "Watch for fake cell towers and the scam texts they send.", Prefs.shieldOn) { Prefs.shieldOn = it })
+                addView(switchRow("Tower watch", "React when the simulated fake tower passes.", Prefs.shieldOn) { Prefs.shieldOn = it })
                 addDivider(this)
                 addView(switchRow("Pop-up alerts", "Show a full alert in the app when a fake tower is detected.", Prefs.popupsOn) { Prefs.popupsOn = it })
                 addDivider(this)
@@ -431,8 +462,8 @@ class AppUi(private val act: Activity) {
             act.card(18).apply {
                 addView(act.text("This demo build", 18f, Ui.p.ink, bold = true), act.lp(b = 8))
                 addView(infoRow("Demo spot", "Coit Rd (fixed point)"))
-                addView(infoRow("Scam checker", BuildConfig.SCORE_URL.removePrefix("http://")))
                 addView(infoRow("Reports go to", BuildConfig.SPACETIME_DB))
+                addView(infoRow("Demo link", when (Pipeline.linkOk) { true -> "Connected"; false -> "Lost"; null -> "Checking…" }))
                 addView(
                     act.text(
                         "The 2G drop and the scam text are simulated when the demo's fake tower passes. The app never reads your texts or calls, and sends no personal data.",
@@ -443,6 +474,7 @@ class AppUi(private val act: Activity) {
             },
             act.lp(b = 16),
         )
+        addView(scoreUrlCard(), act.lp(b = 16))
         addView(
             primaryButton("Run the demo now") {
                 Pipeline.fireDebug("settings")
@@ -452,6 +484,31 @@ class AppUi(private val act: Activity) {
             act.lp(b = 12),
         )
         addView(outlineButton("Clear alerts", Ui.p.red) { EventLog.clear(); Toast.makeText(act, "Alerts cleared", Toast.LENGTH_SHORT).show() }, act.lp())
+    }
+
+    /** Quick-tunnel addresses change on every restart; this avoids rebuilding the APK when that happens. */
+    private fun scoreUrlCard(): View = act.card(18).apply {
+        addView(act.text("Scam checker address", 18f, Ui.p.ink, bold = true), act.lp(b = 4))
+        val input = EditText(act).apply {
+            setText(ScoreClient.url())
+            setSingleLine()
+            inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_URI
+            textSize = 14f
+            setTextColor(Ui.p.ink)
+        }
+        addView(input, act.lp(b = 8))
+        addView(
+            primaryButton("Save address") {
+                val typed = input.text.toString().trim()
+                if (typed.isNotEmpty() && !typed.startsWith("http")) {
+                    Toast.makeText(act, "The address must start with http:// or https://", Toast.LENGTH_LONG).show()
+                } else {
+                    Prefs.scoreUrl = typed
+                    input.setText(ScoreClient.url())
+                    Toast.makeText(act, "Saved", Toast.LENGTH_SHORT).show()
+                }
+            },
+        )
     }
 
     private fun switchRow(title: String, desc: String, on: Boolean, onChange: (Boolean) -> Unit): View {
@@ -497,13 +554,6 @@ class AppUi(private val act: Activity) {
             background = ripple(Ui.p.card, 14, stroke = color, rippleColor = 0x22000000)
             minHeight = dp(52)
             setPadding(dp(16), dp(15), dp(16), dp(15))
-            setOnClickListener { onClick() }
-        }
-
-    private fun textButton(label: String, onClick: () -> Unit): View =
-        act.text(label, 15f, Ui.p.muted, bold = true).apply {
-            gravity = Gravity.CENTER
-            setPadding(dp(16), dp(14), dp(16), dp(6))
             setOnClickListener { onClick() }
         }
 
@@ -576,6 +626,9 @@ class AppUi(private val act: Activity) {
         }
         val warn = ev.kind == "warning"
         val titleColor = if (warn) Ui.p.amberInk else if (alert) Ui.p.red else Ui.p.ink
+        if (alert) {
+            box.addView(act.pill("Simulated demo", Ui.p.amberInk, Ui.p.amberWash), act.lp(w = WRAP, t = 2, b = 6).apply { gravity = Gravity.CENTER_HORIZONTAL })
+        }
         box.addView(
             act.text(if (alert && !warn) "Fake tower detected" else ev.title, if (alert) 24f else 22f, titleColor, bold = true)
                 .apply { if (alert) gravity = Gravity.CENTER },
@@ -583,8 +636,7 @@ class AppUi(private val act: Activity) {
         )
         box.addView(
             act.text(
-                if (alert && !warn) "Your phone was just pulled onto a fake cell tower. The text you received is fake. Don't tap the link."
-                else ev.detail,
+                if (alert && !warn) Notifier.DETECTION_TEXT else ev.detail,
                 15f, Ui.p.ink2,
             ).apply { if (alert) gravity = Gravity.CENTER },
             act.lp(t = 8),
@@ -599,7 +651,10 @@ class AppUi(private val act: Activity) {
                             gravity = Gravity.CENTER_VERTICAL
                             // The sheet already shows the badge in its header; only the alert needs it here.
                             if (alert) addView(badge(ev.copy(kind = "text")))
-                            addView(act.text("${(ev.score * 100).toInt()}% sure", 13f, Ui.p.ink2, bold = true), act.lp(l = if (alert) 10 else 0))
+                            addView(
+                                act.text(if (ev.offlineScore) "Sample score: checker offline" else "${(ev.score * 100).toInt()}% sure", 13f, Ui.p.ink2, bold = true),
+                                act.lp(w = WRAP, l = if (alert) 10 else 0),
+                            )
                         },
                     )
                     addView(act.text(ev.preview, 14f, Ui.p.ink), act.lp(t = 8))
@@ -640,7 +695,6 @@ class AppUi(private val act: Activity) {
             act.lp(t = 16),
         )
         box.addView(outlineButton("Turn off 2G on this phone", Ui.p.magenta) { close(); openNetworkSettings() }, act.lp(t = 10))
-        if (alert) box.addView(textButton("Dismiss") { close() }, act.lp(t = 2))
     }
 
     // ---------------------------------------------------------------- first-run screen
@@ -660,7 +714,7 @@ class AppUi(private val act: Activity) {
                 addView(act.text("Demo build. This app does not read your texts or calls.", 18f, Color.WHITE, bold = true).apply { gravity = Gravity.CENTER }, act.lp(t = 14))
                 addView(
                     act.text(
-                        "When the simulated fake tower drives past the demo spot, the app plays out a simulated 2G drop and a sample scam text, scores that sample text, and sends a report to the demo database: the score, the brand, a hash of the link's domain, and a fixed demo location.\n\nNothing about you is sent. Phone and location permission are only used to show your phone's real network type and cell on the next screens.",
+                        "When the simulated fake tower drives past the demo spot, the app plays out a simulated 2G drop and a sample scam text, scores that sample text, and sends a report to the demo database: the score, the brand, a hash of the link's domain, and a fixed demo location.\n\nNothing about you is sent. Phone and location permission are optional and only show your phone's real network type and cell on the next screens. Without notifications, alerts only appear while the app is open.",
                         15f, 0xFFFFE6F2.toInt(),
                     ).apply { gravity = Gravity.CENTER },
                     act.lp(t = 14),

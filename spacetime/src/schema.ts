@@ -12,13 +12,17 @@ const prediction = table({ name: 'prediction', public: true }, C.prediction(t));
 const alert = table({ name: 'alert', public: true }, C.alert(t));
 const sim_truth = table({ name: 'sim_truth', public: true }, C.sim_truth(t));
 const dev_config = table({ name: 'dev_config', public: true }, C.dev_config(t));
+const case_report = table({ name: 'case_report', public: true }, C.case_report(t));
 const recluster_schedule = table(
   { name: 'recluster_schedule' },
   { scheduled_id: t.u64().primaryKey().autoInc(), scheduled_at: t.scheduleAt() },
 );
+// Private: the identities allowed to call the agent, simulator and dev reducers (see requireOperator).
+const operator = table({ name: 'operator' }, { identity: t.identity().primaryKey() });
 
 const spacetimedb = schema({
-  anomaly_event, track, campaign, agent_trace, prediction, alert, sim_truth, dev_config, recluster_schedule,
+  anomaly_event, track, campaign, agent_trace, prediction, alert, sim_truth, dev_config, case_report,
+  recluster_schedule, operator,
 });
 export default spacetimedb;
 export { recluster_schedule };

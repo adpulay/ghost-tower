@@ -4,7 +4,7 @@ import { LoginScreen } from "./auth/LoginScreen";
 import { AnalystMap } from "./map/AnalystMap";
 import { ActivityFeed } from "./shell/ActivityFeed";
 import { IncidentPanel } from "./shell/IncidentPanel";
-import { PatrolSlot } from "./shell/Slots";
+import PatrolView from "./patrol/PatrolView";
 import { TopBar } from "./shell/TopBar";
 
 export default function App() {
@@ -28,7 +28,7 @@ export default function App() {
           </div>
         }
       />
-      <Route path="/patrol" element={<PatrolSlot />} />
+      <Route path="/patrol" element={<PatrolView />} />
     </Routes>
   );
 }

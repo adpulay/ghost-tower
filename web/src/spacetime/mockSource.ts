@@ -231,6 +231,11 @@ export function createMockSource(): DataSource {
               },
             ];
             trace("summary", `Warning sent to ${inZone.length} phones ahead of the blaster.`, now);
+            const report = (kind: string, text: string) => ({ id: nextId++, track_id: 1, kind, text, generated: false, updated_ms: now });
+            tables.case_report = [
+              report("police", `SMS blaster suspect, track #1.\nMoving vehicle in Richardson, TX, heading along the route on the map.\nCampaign: ${BRAND} lure, domain 3 days old.\nLook for a vehicle with a powered antenna; do not engage the device.`),
+              report("registrar", `To the Registrar Abuse Team:\nWe report a domain impersonating ${BRAND}, distributed by SMS from a rogue base station that bypasses carrier networks.\nThe domain was registered 3 days before first observation.\nWe request suspension of the domain under your abuse policy.`),
+            ];
           }
         }
         tables.track = [track];

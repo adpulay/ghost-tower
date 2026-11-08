@@ -63,6 +63,10 @@ export function formatEta(s: number): string {
   return m ? `${m}:${String(r).padStart(2, '0')}` : `${r}s`;
 }
 
+export function mph(metersPerSecond: number): number {
+  return Math.round(metersPerSecond * 2.237);
+}
+
 const COMPASS = ['north', 'northeast', 'east', 'southeast', 'south', 'southwest', 'west', 'northwest'];
 export function compass(deg: number): string {
   return COMPASS[Math.round((((deg % 360) + 360) % 360) / 45) % 8];
@@ -82,8 +86,7 @@ export function statusLine(
   if (!target) return 'No active target. Stand by.';
   const replan = latestReplan(traces, target.id);
   if (replan) return replan.text;
-  const kmh = Math.round(target.speed_mps * 3.6);
-  const moving = target.speed_mps >= 1 ? `heading ${compass(target.heading_deg)} at ~${kmh} km/h` : 'stationary';
+  const moving = target.speed_mps >= 1 ? `heading ${compass(target.heading_deg)} at ~${mph(target.speed_mps)} mph` : 'stationary';
   if (!prediction) return `Target ${moving}. Waiting for intercept point…`;
   const eta = etaRemaining(prediction, nowMs);
   return `Target ${moving}. Intercept in ~${Math.max(1, Math.round(eta / 60))} min.`;

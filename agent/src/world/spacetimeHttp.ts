@@ -90,6 +90,9 @@ export class SpacetimeHttpWorld implements World {
   agentRecordAlert(a: Omit<Alert, "id">) {
     return this.call("agent_record_alert", [a.track_id, a.zone_json, a.message, a.sent_ms, a.recipients]);
   }
+  agentSaveReport(trackId: number, kind: "police" | "registrar", text: string, generated: boolean) {
+    return this.call("agent_save_report", [trackId, kind, text, generated]);
+  }
 }
 
 function int(n: number): string {

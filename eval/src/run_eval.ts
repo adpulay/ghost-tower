@@ -5,6 +5,7 @@
 //   npm run eval -- --only main       just the scenario table
 //   npm run eval -- --only ablation   just the fusion ablation (TESTING.md §2c)
 //   npm run eval -- --only load       just the recluster load test (300 / 1,000 / 3,000 phones)
+//   npm run eval -- --only density    how many phones with the app it takes to catch a blaster
 //   npm run eval -- --runs 5 demo-01  pick runs and scenarios; --no-write to only print
 //
 // Runs use the real module in-process (spacetime/test/harness.ts), driven on sim time, so
@@ -85,7 +86,7 @@ if (want('main')) {
     '- *First alert*: first `active` track on the blaster minus its first on-air second. Reports reach Spacetime only after the phone leaves the 2G cell (5-10 s) plus 1-4 s upload, so this cannot be ~0.',
     '- *Usable fix*: first time the error is ≤ 300 m and stays there for 30 s.',
     '- *Error*: per recluster pass (every 3 s) while on air, distance from the associated active track to the true position.',
-    '- *Protected before hit*: **uses a stand-in for the agent alerts** (every 30 s per active track, a corridor 600 m either side of a straight 5-min projection). The real number depends on Role 2\'s agent + `predict_route`; re-measure once it runs.',
+    '- *Protected before hit*: **uses a stand-in for the agent alerts** (every 30 s per active track, a corridor 600 m either side of a straight 5-min projection). The real number depends on the agent + `predict_route`; re-measure once it runs.',
     '- *Event precision/recall*: an event counts as "predicted" if it ended up on a track that went active; ground truth is whether a blaster caused it.',
     '',
   );
@@ -123,7 +124,37 @@ if (want('ablation')) {
     '|---|---|---|---|',
     ...rows,
     '',
-    'Caveat: benign real-toll texts use a cached classifier score of 0.55-0.95 (an assumption that real TxTag reminders look scammy to a text model). Set `CLASSIFIER_URL` and re-run with Role 2\'s real scores.',
+    'Caveat: benign real-toll texts use a cached classifier score of 0.55-0.95 (an assumption that real TxTag reminders look scammy to a text model). Set `CLASSIFIER_URL` and re-run with the real classifier scores.',
+    '',
+  );
+}
+
+if (want('density')) {
+  console.log('adoption density...');
+  const base = loadScenario('demo-01');
+  const [south, west, north, east] = base.area_bbox;
+  const midLat = ((south + north) / 2) * (Math.PI / 180);
+  const areaKm2 = (north - south) * 111.32 * (east - west) * 111.32 * Math.cos(midLat);
+  const rows: string[] = [];
+  for (const phones of [25, 50, 100, 150, 200, 300]) {
+    const ms: Metrics[] = [];
+    for (let i = 0; i < RUNS; i++) ms.push(score(await runLocal(base, { phones, seedSuffix: seedSuffix(i), mockAlerts: true })));
+    const caught = ms.filter(m => m.timeToFirstAlertS !== null).length;
+    const g = (k: keyof Metrics) => median(ms.map(m => m[k] as number | null));
+    const row = [
+      String(phones), f(phones / areaKm2, 1), `${caught}/${RUNS}`, f(g('timeToFirstAlertS')), f(g('errMedianM')), f(g('protectedPct')),
+    ];
+    rows.push(`| ${row.join(' | ')} |`);
+    console.log(row.join('  '));
+  }
+  md.push(
+    '## Adoption density',
+    '',
+    `How many phones must run the app before a blaster is caught. demo-01 with fewer phones in the same ${areaKm2.toFixed(1)} km² area, ${RUNS} seeded runs each, medians over runs. Every simulated phone counts as an opted-in sensor, spread evenly and stationary, so treat this as a best case.`,
+    '',
+    '| Phones with the app | Per km² | Runs caught | First alert (s) | Err median (m) | Protected before hit (%) |',
+    '|---|---|---|---|---|---|',
+    ...rows,
     '',
   );
 }

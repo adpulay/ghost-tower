@@ -47,8 +47,10 @@ private fun post(url: String, body: String, timeoutMs: Int = 5000): Pair<Int, St
 
 /** POST /score { "text": ... } -> { "score": 0.97, "brand": "TxTag" } (INTERFACES.md section 8). */
 object ScoreClient {
+    fun url(): String = Prefs.scoreUrl ?: BuildConfig.SCORE_URL
+
     fun score(text: String): Pair<Float, String>? = try {
-        val (code, body) = post(BuildConfig.SCORE_URL, JSONObject().put("text", text).toString())
+        val (code, body) = post(url(), JSONObject().put("text", text).toString())
         if (code in 200..299) {
             val j = JSONObject(body)
             j.getDouble("score").toFloat() to j.optString("brand", "")
