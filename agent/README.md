@@ -69,10 +69,20 @@ the same normalization as `classifier/features.py`). Add the simulator's demo do
 
 ## Spacetime connection
 
+The module is in `spacetime/` (see `spacetime/README.md`). Maincloud database:
+`ghost-tower-94144`; that is the default, so `.env` only needs `SPACETIME_HOST`/`SPACETIME_DB`
+for the local fallback.
+
 `src/world/spacetimeHttp.ts` uses SpacetimeDB's HTTP API (`/sql` to read, `/call/<reducer>` to
-write) and polls `track` every second. It works before Role 1's generated bindings exist.
-Reducer arguments are sent positionally, in the field order in INTERFACES.md §2/§3. If Role 1's
-module uses a different order, change it in that one file.
+write) and polls `track` every second. Reducer arguments are sent positionally, in the order the
+module declares them (`spacetime/src/index.ts`, same as INTERFACES.md §2/§3).
+
+```bash
+# agent against a local module (mock model, no Twilio)
+NEMOTRON_PROVIDER=mock SPACETIME_HOST=http://127.0.0.1:3010 SPACETIME_DB=ghost-tower npm start
+# meanwhile, in spacetime/: feed a fake blaster so recluster creates an active track
+npm run smoke -- --host http://127.0.0.1:3010 --db ghost-tower
+```
 
 ## Files
 

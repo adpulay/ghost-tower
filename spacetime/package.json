@@ -1,0 +1,26 @@
+{
+  "name": "ghost-tower-spacetime",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Ghost Tower SpacetimeDB module: tables, fusion score, recluster tracking, agent reducers",
+  "type": "module",
+  "engines": {
+    "node": ">=22.23.4"
+  },
+  "scripts": {
+    "build": "spacetime build --module-path .",
+    "publish:local": "spacetime publish ghost-tower --module-path . -s local -y",
+    "publish:maincloud": "spacetime publish ghost-tower-94144 --module-path . -s maincloud -y",
+    "test": "tsx --test test/*.test.ts",
+    "smoke": "tsx scripts/smoke.ts",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "spacetimedb": "2.14.1"
+  },
+  "devDependencies": {
+    "@types/node": "22.20.5",
+    "tsx": "4.19.2",
+    "typescript": "5.6.3"
+  }
+}
