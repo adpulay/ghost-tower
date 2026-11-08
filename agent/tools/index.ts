@@ -22,8 +22,8 @@ export const TOOLS: ToolDef[] = [
 export const TOOLS_BY_NAME = new Map(TOOLS.map((t) => [t.name, t]));
 
 /** OpenAI-compatible `tools` array for the chat completions request. */
-export function openAiTools() {
-  return TOOLS.map((t) => ({
+export function openAiTools(only?: readonly string[]) {
+  return TOOLS.filter((t) => !only || only.includes(t.name)).map((t) => ({
     type: "function" as const,
     function: { name: t.name, description: t.description, parameters: t.parameters },
   }));

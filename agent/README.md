@@ -37,10 +37,16 @@ vllm serve --model "nvidia/NVIDIA-Nemotron-Nano-3-30B-A3B-FP8" --dtype auto --tr
 
 | Track event | Agent action | Trace |
 |---|---|---|
-| goes `active` (or comes back from `dormant`) | **investigate**: group campaign, check origin, predict route, warn path | `plan` … `summary` |
+| goes `active` (or comes back from `dormant`) | **investigate** once its direction can be trusted (see below): group campaign, check origin, predict route, warn path | `plan` … `summary` |
 | heading changes > 45° from the last prediction (speed ≥ 2 m/s, once the turn settles) | **replan**: re-predict and re-warn | `replan` (highlighted on the panel) |
-| prediction older than 20 s | **refresh**: re-predict only | `plan` "Refreshing…" |
+| prediction older than 20 s | **refresh**: re-predict only. **Silent**: no log lines, and only the route tools are offered | none (the map shows the new path) |
 | goes `dormant` | nothing to do | `summary` "Track dormant, watching for campaign reappearance" |
+
+**First warning waits for a trustworthy direction.** A new track reports little or no speed and a noisy heading,
+so a prediction made at once points at nobody (seen live: heading northwest for a car driving east; the first
+warning reached 0 phones in three runs). The first investigation starts when the track is moving (>= 2 m/s)
+and its reported heading is within 45 degrees of where its position has actually gone over the last 8 s,
+or after 25 s regardless (`FIRST_WARNING_MAX_WAIT_MS`). Replans and refreshes are unaffected.
 
 Guardrails:
 - At most 12 model steps per run (a model that stops before its mode's required tools are done gets up to 2 reminders; a summary claiming an unsent warning is replaced), a 20 s timeout per model call, and one retry. Failures write a

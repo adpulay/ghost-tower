@@ -119,6 +119,7 @@ code { font-family: var(--font-data); font-size: .88em; background: var(--navy-8
   letter-spacing: .03em;
 }
 .flag-sim { color: var(--caution); }
+.flag-corner { position: fixed; top: 10px; right: 10px; z-index: 2000; background: var(--navy-900); }
 .flag-debug { color: #ff8fc7; }
 .clock { font: 600 22px/1 var(--font-cond); letter-spacing: .02em; font-variant-numeric: tabular-nums; }
 .clock small { margin-left: 5px; font: 500 13px var(--font); color: var(--muted); }

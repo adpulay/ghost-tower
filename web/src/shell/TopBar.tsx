@@ -15,7 +15,7 @@ function useClock() {
 }
 
 export function TopBar() {
-  const { status, mode, debug } = useTables();
+  const { status, debug } = useTables();
   const now = useClock();
   const time = now.toLocaleTimeString([], { hour12: false, hour: "2-digit", minute: "2-digit", second: "2-digit" });
   const zone = now.toLocaleTimeString([], { timeZoneName: "short" }).split(" ").pop();
@@ -34,7 +34,8 @@ export function TopBar() {
       </nav>
 
       <div className="topbar-right">
-        {mode === "mock" && <span className="flag flag-sim">Simulated data</span>}
+        {/* Always on: the blaster and most phones are simulated, whatever the data source. */}
+        <span className="flag flag-sim">Simulated data</span>
         {debug && <span className="flag flag-debug">Ground truth visible</span>}
         <span className={`feed feed-${status}`} role="status">
           <i aria-hidden />

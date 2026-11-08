@@ -39,6 +39,8 @@ export function PatrolSlot() {
   }
   return (
     <SpacetimeDBProvider connectionBuilder={builder}>
+      {/* Always on, like the analyst map's tag: the blaster and most phones are simulated. */}
+      <span className="flag flag-sim flag-corner">Simulated data</span>
       <PatrolView />
     </SpacetimeDBProvider>
   );

@@ -1,42 +1,38 @@
 # Ghost Tower Sensor (Android)
 
-Role 3. Watches the data network type, catches an SMS during a 2G window, scores it with Role 2's `/score`, calls `report_anomaly`, and notifies the user.
+Demo build. When the simulated fake tower's track passes the phone's pinned spot, the app plays out a **simulated 2G drop and a sample scam text** through its detection pipeline: window logic, the classifier call (`/score`), `report_anomaly`, and the "Fake cell tower detected" notification. The pipeline is real; its inputs are simulated.
 
-**Status:** compiles and builds a debug APK (`./gradlew assembleDebug`). Not yet run on an emulator or phone.
+**This build has no real 2G listener and no SMS receiver.** It never reads your texts or calls, and it has no `RECEIVE_SMS` permission. The only permissions are phone state and coarse location (to show the phone's real network type and cell on the home screen, display only) and notifications.
+
+**Status:** builds a debug APK (`./gradlew assembleDebug`). The demo trigger has fired on a real phone against the live database.
 
 **Build notes**
 - The wrapper is pinned to Gradle 9.6.0. Android Studio's bundled JDK is 25, which Gradle 8.x cannot run on, so do not downgrade it.
 - From a terminal, point Gradle at Studio's JDK: `JAVA_HOME="C:/Program Files/Android/Android Studio/jbr"`, then `./gradlew assembleDebug` (PowerShell: `.\gradlew.bat assembleDebug`). The APK is `app/build/outputs/apk/debug/app-debug.apk`.
-- Expected noise: a "Daemon compilation failed" message (Kotlin 1.9.24 daemon on JDK 25; it falls back and still compiles) and one deprecation warning for `PhoneStateListener` (used only on API < 31).
+- Expected noise: a "Daemon compilation failed" message (Kotlin 1.9.24 daemon on JDK 25; it falls back and still compiles).
 
 ## Run
-1. Android Studio → Open `android/` → start an emulator (API 31+ recommended).
+1. Android Studio → Open `android/` → select the phone (or an emulator) → Run.
 2. Reports go to the shared Maincloud database `ghost-tower-94144` by default (same world as the
-   simulator). Point `/score` at a classifier the phone can reach:
-   `./gradlew installDebug -PscoreUrl=http://<brev-host>:8001/score`
+   simulator). Point `/score` at a classifier the phone can reach (put `scoreUrl=...` in
+   `~/.gradle/gradle.properties`, or pass `-PscoreUrl=...`):
+   `./gradlew installDebug -PscoreUrl=http://<laptop-ip>:8001/score`
    Local fallback: add `-PspacetimeUri=http://<laptop-ip>:3000 -PspacetimeDb=ghost-tower`
    (the emulator reaches the host at `10.0.2.2`).
-3. Open the app, accept the opt-in, grant permissions.
+3. Open the app, tap **Turn on sensor**, and grant the permissions. There is no mode switch: the demo trigger is always on.
 
-## Test 2G without breaking the law (emulator only, nothing is transmitted)
-Use the emulator's **Extended controls** (the `...` button on the emulator toolbar):
-1. **Cellular → Network type:** pick `EDGE` (or `GPRS`/`GSM`). The app's home screen should change to "EDGE (2G)".
-2. **Phone → Send message:** enter any sender number and the scam text, e.g. `TxTag: toll overdue, pay at https://txtag-pay-demo.example/pay`.
-3. **Cellular → Network type:** back to `LTE`.
-
-The console equivalent for step 2 is `adb emu sms send 5551234 "<text>"`. If the app never sees the network type change in step 1 on your emulator image, say so; the hidden debug trigger exercises the same code path.
-
-Expect: a row in `anomaly_event` with `rat_drop=true`, high `sms_score`, and a "Fake cell tower detected" notification.
-SMS with no 2G drop → ignored. 2G drop with no SMS → report with `sms_score=0` after 10 s.
+## The demo trigger
+- **Automatic:** the app polls the `track` table every 2 s. When an *active* track's estimated position comes within 500 m of the pinned spot (`Demo` in `Net.kt`), it fires once. It re-arms after the car leaves.
+- **Manual:** the **Trigger the demo now** button, or a long-press on the title. It buzzes about 8 s later.
+- The phone always reports from the pinned spot (a fixed point on Campbell Rd, coarsened to 3 decimals), never from its GPS.
 
 ## Code path
-`NetworkWatcher` (real telephony callback) and `SmsReceiver` (real SMS) → `Pipeline.onNetworkType` / `Pipeline.onSms` → `ScoreClient` → `Reporter.send` → `Notifier`.
-The **debug trigger** (long-press the title, or the button) and **demo mode** (polls `track`, fires when an active track is within 500 m of the pinned UTD location) call the same two `Pipeline` entry points.
+Demo trigger → `Pipeline.fireDebug` → `Pipeline.onNetworkType` (simulated EDGE, then LTE) and `Pipeline.onSms` (sample text) → `ScoreClient` → `Reporter.send` → `Notifier`.
 
 ## Privacy contract (INTERFACES.md §6)
-The report carries only `ts_ms`, coarsened lat/lon (3 decimals), `rat_drop`, `rat_drop_secs`, `sms_score`, `url_hash`, `brand`, `smsc_match` (`unknown`, the phone cannot see carrier logs), `source=phone`. Message text goes only to `/score`.
+The report carries only `ts_ms`, coarsened lat/lon (3 decimals), `rat_drop`, `rat_drop_secs`, `sms_score`, `url_hash`, `brand`, `smsc_match` (`unknown`, the phone cannot see carrier logs), `source=phone`. Only the sample text goes to `/score`; the app never reads real messages.
 
 ## Known gaps
 - The `report_anomaly` call uses Spacetime's HTTP API with positional args in the order of INTERFACES.md §6. Confirm against Role 1's actual reducer signature.
-- `/score` unreachable: real texts are not reported (status shows "Classifier unreachable"). The debug path falls back to a fixed 0.97 score so the demo still fires.
+- `/score` unreachable: the demo path falls back to a fixed 0.97 score so the demo still fires.
 - Cell ID needs location permission on many devices; the home screen shows "unavailable" if it is denied.

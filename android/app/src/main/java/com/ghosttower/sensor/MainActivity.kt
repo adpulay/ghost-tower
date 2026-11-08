@@ -12,7 +12,6 @@ import android.view.View
 import android.widget.Button
 import android.widget.LinearLayout
 import android.widget.ScrollView
-import android.widget.Switch
 import android.widget.TextView
 
 /** Programmatic UI so the app has no layout XML or AndroidX dependencies. */
@@ -23,14 +22,12 @@ class MainActivity : Activity() {
     private lateinit var optIn: LinearLayout
     private lateinit var home: LinearLayout
     private lateinit var debugButton: Button
-    private lateinit var demoSwitch: Switch
     private val ui = Handler(Looper.getMainLooper())
-    private var watcher: NetworkWatcher? = null
+    private var radio: RadioInfo? = null
 
     private val perms: Array<String> get() = buildList {
         add(Manifest.permission.READ_PHONE_STATE)
         add(Manifest.permission.ACCESS_COARSE_LOCATION)
-        add(Manifest.permission.RECEIVE_SMS)
         if (Build.VERSION.SDK_INT >= 33) add(Manifest.permission.POST_NOTIFICATIONS)
     }.toTypedArray()
 
@@ -39,7 +36,7 @@ class MainActivity : Activity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         Pipeline.init(this)
-        watcher = NetworkWatcher(this)
+        radio = RadioInfo(this)
 
         val root = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
@@ -56,12 +53,12 @@ class MainActivity : Activity() {
         // One-screen opt-in.
         optIn = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
         optIn.addView(TextView(this).apply {
-            text = "Your phone is now a sensor. We only report fake-tower events, never your calls, contacts or exact location."
+            text = "Demo build. This app does not read your texts or calls."
             textSize = 18f
             setPadding(0, 32, 0, 32)
         })
         optIn.addView(TextView(this).apply {
-            text = "What leaves your phone: whether you dropped to 2G and for how long, a scam score for a text received during that drop, the brand it imitates, a hash of the link's domain, and your location rounded to about 150 m. The text itself is only scored and never stored or reported."
+            text = "When the simulated fake tower drives past the demo spot, the app plays out a simulated 2G drop and a sample scam text, scores that sample text, and sends a report to the demo database: the score, the brand, a hash of the link's domain, and a fixed demo location. Nothing about you is sent. Phone and location permission are only used to show your phone's real network type and cell on the next screen."
             textSize = 14f
             setPadding(0, 0, 0, 32)
         })
@@ -71,7 +68,7 @@ class MainActivity : Activity() {
         })
         root.addView(optIn)
 
-        // Home screen: real telemetry.
+        // Home screen: the phone's real radio (display only) and the demo trigger.
         home = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; visibility = View.GONE }
         networkView = TextView(this).apply { textSize = 22f; setPadding(0, 32, 0, 8) }
         cellView = TextView(this).apply { textSize = 16f; setPadding(0, 0, 0, 24) }
@@ -80,14 +77,13 @@ class MainActivity : Activity() {
         home.addView(networkView)
         home.addView(cellView)
         home.addView(statusView)
-        demoSwitch = Switch(this).apply {
-            text = "Demo mode (fire when the simulated car passes)"
-            setPadding(0, 48, 0, 0)
-            setOnCheckedChangeListener { _, _ -> startSensor() }
-        }
-        home.addView(demoSwitch)
+        home.addView(TextView(this).apply {
+            text = "Demo trigger is always on: the phone reacts when the simulated car passes. The 2G drop and the text are simulated."
+            textSize = 14f
+            setPadding(0, 48, 0, 16)
+        })
         debugButton = Button(this).apply {
-            text = "Debug trigger (fake 2G drop + scam text)"
+            text = "Trigger the demo now (fake 2G drop + sample text)"
             setOnClickListener { Pipeline.fireDebug() }
         }
         home.addView(debugButton)
@@ -121,16 +117,14 @@ class MainActivity : Activity() {
     }
 
     private fun startSensor() {
-        val i = Intent(this, SensorService::class.java).putExtra(SensorService.EXTRA_DEMO, demoSwitch.isChecked)
-        startForegroundService(i)
+        startForegroundService(Intent(this, SensorService::class.java))
     }
 
     private val ticker = object : Runnable {
         override fun run() {
             if (hasAll()) {
-                val t = Pipeline.currentNetworkType
-                networkView.text = Pipeline.networkName(t)
-                cellView.text = "Cell: " + (watcher?.cellId() ?: "unavailable")
+                networkView.text = radio?.networkName() ?: "unavailable"
+                cellView.text = "Cell: " + (radio?.cellId() ?: "unavailable")
             }
             ui.postDelayed(this, 2000)
         }

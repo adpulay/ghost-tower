@@ -47,6 +47,12 @@ export const REQUIRED_TOOLS: Record<Mode, readonly string[]> = {
   refresh: ["predict_route", "agent_set_prediction"],
 };
 
+/**
+ * Refresh runs only keep the predicted path current. They are silent (no agent_trace lines, which
+ * would repeat every ~20 s) and only get the route tools, so they cannot draft warnings nobody sends.
+ */
+export const REFRESH_TOOLS = ["get_track_context", "predict_route", "agent_set_prediction"] as const;
+
 /** How many times a run reminds the model of missing steps when it stops early. */
 const MAX_NUDGES = 2;
 
@@ -78,13 +84,17 @@ export class Investigator {
     const result: RunResult = { trackId: track.id, mode, toolsCalled: [], steps: 0, finalText: null, claimedAuthority: false, errors: [] };
     const events = await this.world.recentEvents(track.id, 50);
     const ctxBlock = buildContext(track, events);
+    const quiet = mode === "refresh";
+    const trace = (kind: Parameters<typeof writeTrace>[2], text: string) =>
+      quiet ? Promise.resolve() : writeTrace(this.world, track.id, kind, text);
+    const offered: readonly string[] | undefined = quiet ? REFRESH_TOOLS : undefined;
 
     if (mode === "investigate") {
-      await writeTrace(this.world, track.id, "plan", `Investigating track #${track.id}: grouping campaign, checking origin, predicting route`);
+      await trace("plan", `Investigating track #${track.id}: grouping campaign, checking origin, predicting route`);
     } else if (mode === "replan") {
-      await writeTrace(this.world, track.id, "replan", note ?? `Track #${track.id} turned; re-predicting route and re-warning the new path`);
+      await trace("replan", note ?? `Track #${track.id} turned; re-predicting route and re-warning the new path`);
     } else {
-      await writeTrace(this.world, track.id, "plan", note ?? `Refreshing route prediction for track #${track.id}`);
+      this.log?.({ event: "refresh", trackId: track.id });
     }
 
     const messages: ChatMessage[] = [
@@ -93,7 +103,7 @@ export class Investigator {
     ];
     const memory: InvestigationMemory = {};
     const toolCtx: ToolContext = { world: this.world, trackId: track.id, now: this.now, memory, log: this.log };
-    const tools = openAiTools();
+    const tools = openAiTools(offered);
     let nudges = 0;
     let stepsSinceDone = 0;
 
@@ -106,7 +116,8 @@ export class Investigator {
         const msg = errMsg(e);
         result.errors.push(`model: ${msg}`);
         result.aborted = "model_error";
-        await writeTrace(this.world, track.id, "summary", `Model unavailable (${msg.slice(0, 60)}); will retry on next track update`);
+        this.log?.({ event: "model_unavailable", trackId: track.id, mode, error: msg });
+        await trace("summary", `Model unavailable (${msg.slice(0, 60)}); will retry on next track update`);
         return result;
       }
 
@@ -127,33 +138,33 @@ export class Investigator {
           continue;
         }
         result.finalText = reply.content;
-        await this.writeSummary(track.id, reply.content, result);
+        await this.writeSummary(track.id, reply.content, result, quiet);
         return result;
       }
 
       messages.push({ role: "assistant", content: reply.content, tool_calls: reply.tool_calls });
       for (const call of reply.tool_calls) {
         const name = call.function.name;
-        const tool = TOOLS_BY_NAME.get(name);
+        const tool = offered && !offered.includes(name) ? undefined : TOOLS_BY_NAME.get(name);
         let args: Record<string, unknown> = {};
         try {
           args = JSON.parse(call.function.arguments || "{}");
         } catch {
           /* leave empty; the tool will complain */
         }
-        await writeTrace(this.world, track.id, "tool_call", `Calling ${name}${renderArgs(args)}`);
+        await trace("tool_call", `Calling ${name}${renderArgs(args)}`);
         result.toolsCalled.push(name);
         let content: string;
         if (!tool) {
           content = JSON.stringify({ error: `unknown tool ${name}` });
           result.errors.push(`unknown tool ${name}`);
-          await writeTrace(this.world, track.id, "tool_result", `Unknown tool ${name}; skipped.`);
+          await trace("tool_result", `Unknown tool ${name}; skipped.`);
         } else {
           try {
             const out = await tool.run(args, toolCtx);
             content = JSON.stringify(out);
             const line = tool.summarize(out, args);
-            await writeTrace(this.world, track.id, "tool_result", tool.simulated ? withSimulatedTag(line) : line);
+            await trace("tool_result", tool.simulated ? withSimulatedTag(line) : line);
             if (name === "agent_set_prediction") {
               result.predictionAtMs = this.now();
               result.predictionHeading = track.heading_deg;
@@ -163,7 +174,7 @@ export class Investigator {
             const msg = errMsg(e);
             content = JSON.stringify({ error: msg });
             result.errors.push(`${name}: ${msg}`);
-            await writeTrace(this.world, track.id, "tool_result", `${name} failed: ${msg}`);
+            await trace("tool_result", `${name} failed: ${msg}`);
           }
         }
         messages.push({ role: "tool", tool_call_id: call.id, name, content });
@@ -172,14 +183,14 @@ export class Investigator {
       // allow one more turn for its summary, then finish with an evidence-only line.
       if (REQUIRED_TOOLS[mode].every((t) => result.toolsCalled.includes(t))) {
         if (stepsSinceDone++ >= 1) {
-          await this.writeSummary(track.id, null, result);
+          await this.writeSummary(track.id, null, result, quiet);
           return result;
         }
       }
     }
 
     result.aborted = "step_cap";
-    await writeTrace(this.world, track.id, "summary", `Stopped after ${this.maxSteps} steps; actions so far: ${[...new Set(result.toolsCalled)].length} tools used`);
+    await trace("summary", `Stopped after ${this.maxSteps} steps; actions so far: ${[...new Set(result.toolsCalled)].length} tools used`);
     return result;
   }
 
@@ -192,7 +203,7 @@ export class Investigator {
     }
   }
 
-  private async writeSummary(trackId: number, text: string | null, result: RunResult) {
+  private async writeSummary(trackId: number, text: string | null, result: RunResult, quiet = false) {
     let line = (text ?? "").trim();
     // Don't let the summary say people were warned unless this run actually sent a warning.
     if (line && WARNING_CLAIM.test(line) && !result.toolsCalled.includes("send_warning")) {
@@ -203,7 +214,7 @@ export class Investigator {
       // Never broadcast an authority claim; fall back to an evidence-only line.
       line = actionsSummary(trackId, result.toolsCalled);
     }
-    await writeTrace(this.world, trackId, "summary", clip(line));
+    if (!quiet) await writeTrace(this.world, trackId, "summary", clip(line));
   }
 }
 

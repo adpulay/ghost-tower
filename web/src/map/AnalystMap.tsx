@@ -28,7 +28,7 @@ const ALERT_ZONE = "#f2b705";
 const EVENT = "#f08a24";
 
 export function AnalystMap() {
-  const { tables, status, detail, mode, debug } = useTables();
+  const { tables, status, detail, debug } = useTables();
   const [now, setNow] = useState(Date.now());
 
   const hostRef = useRef<HTMLDivElement>(null);
@@ -199,7 +199,7 @@ export function AnalystMap() {
         <div className={`pill pill-${status}`}>
           {status === "connected" ? "● live" : status}
         </div>
-        {mode === "mock" && <div className="pill pill-sim">simulated data</div>}
+        <div className="pill pill-sim">simulated data</div>
         {debug && <div className="pill pill-debug">debug: ground truth visible</div>}
         {status === "error" && <div className="error">{detail}</div>}
       </div>
@@ -213,7 +213,7 @@ export function AnalystMap() {
       </div>
 
       <div className="hud hud-legend">
-        <div><i className="dot grey" /> phones {mode === "mock" && <em>(simulated)</em>}</div>
+        <div><i className="dot grey" /> phones <em>(simulated)</em></div>
         <div><i className="dot orange" /> anomaly events</div>
         <div><i className="dot red" /> blaster estimate</div>
         <div><i className="dash" /> predicted path</div>

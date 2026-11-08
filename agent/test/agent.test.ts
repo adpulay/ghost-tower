@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { Investigator } from "../src/agent.js";
+import { actionsSummary, Investigator, REFRESH_TOOLS } from "../src/agent.js";
 import type { ChatModel, ChatResponse } from "../src/llm/types.js";
 import { MockPolicy } from "../src/llm/mockPolicy.js";
 import { urlHash } from "../src/knownDomains.js";
@@ -118,11 +118,52 @@ test("nudges are limited, so a model that keeps stopping still ends the run", as
 });
 
 test("a summary claiming a warning that was never sent is replaced", async () => {
+  // Investigate mode writes its summary to the log. The model never calls send_warning but claims it did.
+  const model = scripted([
+    ["rdap_domain_age"], ["agent_link_campaign", "carrier_smsc_lookup"], ["predict_route"], ["agent_set_prediction"], ["draft_report"],
+    "Track heading east; warning broadcast to 41 phones.",
+  ]);
+  const w = world();
+  const r = await new Investigator(w, model, { now: () => NOW }).run(TRACK, "investigate");
+  assert.equal(r.claimedUnsentWarning, true);
+  assert.doesNotMatch(w.traces.at(-1)!.text, /41 phones|broadcast/);
+  assert.match(w.traces.at(-1)!.text, /Track #3/);
+});
+
+test("a refresh run is silent: no agent log lines, even when the model claims a warning", async () => {
   const model = scripted([["predict_route"], ["agent_set_prediction"], "Track heading east; warning broadcast to 41 phones."]);
   const w = world();
   const r = await new Investigator(w, model, { now: () => NOW }).run(TRACK, "refresh");
   assert.equal(r.claimedUnsentWarning, true);
-  assert.doesNotMatch(w.traces.at(-1)!.text, /41 phones|broadcast/);
+  assert.equal(w.traces.length, 0);
+  assert.ok(w.predictions.get(3), "the prediction is still published");
+});
+
+test("a refresh run is only offered the route tools and cannot draft or send a warning", async () => {
+  const offered: string[][] = [];
+  const model: ChatModel = {
+    name: "spy",
+    async chat(messages, tools): Promise<ChatResponse> {
+      offered.push((tools as { function: { name: string } }[]).map((t) => t.function.name));
+      // The model tries to call draft_report anyway.
+      const calledDraft = messages.some((m) => m.role === "tool" && m.name === "draft_report");
+      const calledRoute = messages.some((m) => m.role === "tool" && m.name === "predict_route");
+      const name = !calledRoute ? "predict_route" : !calledDraft ? "draft_report" : null;
+      if (!name) return { content: "", tool_calls: [] };
+      return { content: null, tool_calls: [{ id: `s${offered.length}`, type: "function", function: { name, arguments: argsFor(name) } }] };
+    },
+  };
+  const w = world();
+  const r = await new Investigator(w, model, { now: () => NOW }).run(TRACK, "refresh");
+  assert.deepEqual([...new Set(offered.flat())].sort(), [...REFRESH_TOOLS].sort());
+  assert.ok(r.errors.some((e) => /unknown tool draft_report/.test(e)), "draft_report was refused");
+  assert.equal(w.traces.length, 0);
+  assert.equal(w.alerts.length, 0);
+  // Investigate and replan still get every tool.
+  const full: string[][] = [];
+  const spy: ChatModel = { name: "spy2", async chat(_m, tools) { full.push((tools as { function: { name: string } }[]).map((t) => t.function.name)); return { content: "", tool_calls: [] }; } };
+  await new Investigator(world(), spy, { now: () => NOW }).run(TRACK, "replan");
+  assert.ok(full[0].includes("send_warning") && full[0].includes("draft_report"));
 });
 
 test("model failure (e.g. 20 s timeout) is retried once then reported, not thrown", async () => {
@@ -184,10 +225,16 @@ test("write tools are pinned to the investigated track", async () => {
 });
 
 test("an empty final reply gets a readable evidence-only summary", async () => {
-  const model = scripted([["predict_route"], ["agent_set_prediction"], ""]);
+  assert.equal(actionsSummary(3, ["predict_route", "agent_set_prediction"]), "Track #3: route predicted.");
+  assert.equal(actionsSummary(3, []), "Track #3: no actions completed.");
+  // In a run that writes to the log, an empty model reply is replaced by that line.
+  const model = scripted([
+    ["rdap_domain_age"], ["agent_link_campaign", "carrier_smsc_lookup"], ["predict_route"], ["agent_set_prediction"],
+    ["draft_report"], ["send_warning"], ["agent_record_alert"], "",
+  ]);
   const w = world();
-  await new Investigator(w, model, { now: () => NOW }).run(TRACK, "refresh");
-  assert.equal(w.traces.at(-1)!.text, "Track #3: route predicted.");
+  await new Investigator(w, model, { now: () => NOW }).run(TRACK, "investigate");
+  assert.match(w.traces.at(-1)!.text, /^Track #3: .*path warned\.$/);
 });
 
 test("a model that keeps calling tools after finishing is stopped with a clean summary", async () => {
@@ -198,5 +245,5 @@ test("a model that keeps calling tools after finishing is stopped with a clean s
   const r = await new Investigator(w, model, { now: () => NOW }).run(TRACK, "refresh");
   assert.ok(!r.aborted);
   assert.ok(r.steps <= 4, `took ${r.steps} steps`);
-  assert.equal(w.traces.at(-1)!.text, "Track #3: route predicted.");
+  assert.equal(w.traces.length, 0, "refresh runs write nothing to the agent log");
 });

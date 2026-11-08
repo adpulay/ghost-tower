@@ -9,11 +9,13 @@ import java.security.MessageDigest
 import java.util.concurrent.Executors
 
 /**
- * Core detection path. Live network callbacks, real SMS, the debug button and demo mode
- * ALL go through onNetworkType() / onSms(), so "the phone runs the same code path" is true.
+ * Core detection path. The demo trigger (the simulated car passing, the button, a long-press on
+ * the title) plays a 2G drop and a sample text through onNetworkType() / onSms(): the window
+ * logic, the classifier call, the report and the notification are all real. The inputs are
+ * simulated. This build has no real 2G listener and no SMS receiver, so it never reads a text.
  *
- * Privacy: message text is sent only to the classifier (/score). The Spacetime report carries
- * the score, brand, a hash of the link domain and a coarsened location, never the text.
+ * Privacy: only the sample text is sent to the classifier (/score). The Spacetime report carries
+ * the score, brand, a hash of the link domain and the fixed demo location, never any text.
  */
 object Pipeline {
     private const val SMS_AFTER_DROP_MS = 10_000L
@@ -26,12 +28,8 @@ object Pipeline {
     @Volatile private var lastDropEndMs = 0L
     @Volatile private var lastDropSecs = 0f
     @Volatile private var smsHandledForDrop = false
-    /** Set by fireDebug: the drop and the text are simulated, so report from the demo pin. */
-    @Volatile private var simulatedHit = false
     private var noSmsReport: Runnable? = null
 
-    @Volatile var currentNetworkType: Int = TelephonyManager.NETWORK_TYPE_UNKNOWN
-        private set
     @Volatile var lastStatus: String = "Watching. Nothing suspicious."
         private set
     var statusListener: ((String) -> Unit)? = null
@@ -64,10 +62,9 @@ object Pipeline {
         main.post { statusListener?.invoke(s) }
     }
 
-    /** Called for every data network type change. */
+    /** Called for every (simulated) data network type change. */
     @Synchronized
     fun onNetworkType(type: Int, now: Long = System.currentTimeMillis()) {
-        currentNetworkType = type
         val since = twoGSinceMs
         if (is2G(type) && since == null) {
             twoGSinceMs = now
@@ -90,7 +87,7 @@ object Pipeline {
         }
     }
 
-    /** Called with the SMS body for every incoming text. Silently ignored outside a 2G window. */
+    /** Called with the (sample) SMS body. Silently ignored outside a 2G window. */
     @Synchronized
     fun onSms(text: String, now: Long = System.currentTimeMillis(), fallbackScore: Float? = null) {
         val since = twoGSinceMs
@@ -116,13 +113,11 @@ object Pipeline {
     }
 
     private fun report(secs: Float, score: Float, brand: String, urlHash: String, fallbackNotify: Boolean) {
-        val pinned = simulatedHit
-        simulatedHit = false
-        val (lat, lon) = if (pinned) Reporter.pinnedLocation() else Reporter.coarseLocation(app)
-        // Simulated hits follow the sim clock when it runs ahead (sim --speed 4x); real ones never do.
+        val (lat, lon) = Reporter.pinnedLocation()
+        // Follow the sim clock when it runs ahead (sim --speed 3x), so the report lands in the tracker's window.
         val wall = System.currentTimeMillis()
-        val ts = if (pinned) maxOf(wall, Reporter.simNowMs() ?: 0L) else wall
-        Log.i("GhostTower", "report pinned=$pinned lat=$lat lon=$lon score=$score secs=$secs ts=$ts simAhead=${ts - wall}ms")
+        val ts = maxOf(wall, Reporter.simNowMs() ?: 0L)
+        Log.i("GhostTower", "report lat=$lat lon=$lon score=$score secs=$secs ts=$ts simAhead=${ts - wall}ms")
         val ok = Reporter.send(
             tsMs = ts, lat = lat, lon = lon,
             ratDrop = true, ratDropSecs = secs, smsScore = score,
@@ -135,10 +130,9 @@ object Pipeline {
         if (fallbackNotify && score >= 0.5f) Notifier.fakeTower(app)
     }
 
-    /** Hidden debug trigger and demo mode both call this. Drives the real entry points. */
+    /** The demo trigger: the simulated car passing, the button and the title long-press all call this. */
     fun fireDebug(reason: String = "button") {
         Log.i("GhostTower", "fireDebug reason=$reason")
-        simulatedHit = true
         val now = System.currentTimeMillis()
         onNetworkType(TelephonyManager.NETWORK_TYPE_EDGE, now)
         main.postDelayed({

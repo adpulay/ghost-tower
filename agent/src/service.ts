@@ -1,5 +1,5 @@
 import { Investigator, type Mode, type RunResult } from "./agent.js";
-import { compass, headingDelta } from "./geo.js";
+import { bearingDeg, compass, haversineM, headingDelta } from "./geo.js";
 import type { ChatModel } from "./llm/types.js";
 import { writeTrace } from "./trace.js";
 import type { Track } from "./types.js";
@@ -20,6 +20,19 @@ export const TURN_SETTLE_DEG = 10;
 export const TURN_SETTLE_WINDOW_MS = 9_000;
 export const TURN_SETTLE_MAX_MS = 25_000;
 
+/**
+ * The first investigation (and so the first warning) waits until the track's direction can be
+ * trusted. A brand-new track reports little or no speed and a noisy heading (seen live: heading
+ * northwest for a car driving east, speed 0), so a prediction made at once points at nobody and
+ * the first warning reaches 0 phones. Direction counts as trustworthy when the track is moving
+ * and its reported heading agrees with where its position has actually gone over the last few
+ * seconds. After FIRST_WARNING_MAX_WAIT_MS the investigation goes ahead anyway.
+ */
+export const DIRECTION_WINDOW_MS = 8_000;
+export const MIN_DISPLACEMENT_M = 40;
+export const DIRECTION_TOLERANCE_DEG = 45;
+export const FIRST_WARNING_MAX_WAIT_MS = 25_000;
+
 interface TrackState {
   lastStatus: string;
   /** An investigation has completed (or been attempted) since the track last became active. */
@@ -32,6 +45,25 @@ interface TrackState {
   /** Recent headings (last TURN_SETTLE_WINDOW_MS) for the settle check. */
   headings: { ms: number; deg: number }[];
   turnSeenMs?: number;
+  /** Recent positions (last DIRECTION_WINDOW_MS), to compare heading with actual movement. */
+  positions: { ms: number; lat: number; lon: number }[];
+  /** When this track was first seen active (reset when it goes dormant). */
+  activeSinceMs?: number;
+}
+
+/** True when the track is moving and its heading agrees with where it has actually gone. */
+export function directionReliable(
+  track: Pick<Track, "speed_mps" | "heading_deg" | "lat" | "lon">,
+  positions: readonly { ms: number; lat: number; lon: number }[],
+  now: number,
+): boolean {
+  if (track.speed_mps < MIN_TURN_SPEED_MPS) return false;
+  const first = positions[0];
+  if (!first || now - first.ms < DIRECTION_WINDOW_MS - 1_000) return false; // need about a full window of history
+  const from: [number, number] = [first.lat, first.lon];
+  const to: [number, number] = [track.lat, track.lon];
+  if (haversineM(from, to) < MIN_DISPLACEMENT_M) return false;
+  return headingDelta(track.heading_deg, bearingDeg(from, to)) <= DIRECTION_TOLERANCE_DEG;
 }
 
 export interface ServiceOptions {
@@ -96,7 +128,7 @@ export class AgentService {
   private async onTrack(track: Track): Promise<void> {
     let st = this.state.get(track.id);
     if (!st) {
-      st = { lastStatus: "", investigated: false, running: null, headings: [] };
+      st = { lastStatus: "", investigated: false, running: null, headings: [], positions: [] };
       this.state.set(track.id, st);
     }
     const prevStatus = st.lastStatus;
@@ -104,6 +136,8 @@ export class AgentService {
     const tickMs = this.now();
     st.headings.push({ ms: tickMs, deg: track.heading_deg });
     st.headings = st.headings.filter((h) => tickMs - h.ms <= TURN_SETTLE_WINDOW_MS);
+    st.positions.push({ ms: tickMs, lat: track.lat, lon: track.lon });
+    st.positions = st.positions.filter((p) => tickMs - p.ms <= DIRECTION_WINDOW_MS);
 
     if (track.status === "dormant") {
       if (prevStatus !== "dormant" && prevStatus !== "") {
@@ -111,6 +145,7 @@ export class AgentService {
       }
       st.investigated = false; // reactivation (same url_hash) gets a fresh investigation
       st.predictionMs = undefined;
+      st.activeSinceMs = undefined;
       return;
     }
     if (track.status !== "active" || st.running) return;
@@ -118,6 +153,9 @@ export class AgentService {
     if (st.retryAfterMs && now < st.retryAfterMs) return;
 
     if (!st.investigated) {
+      st.activeSinceMs ??= now;
+      // Hold the first warning until we know which way the blaster is really going.
+      if (!directionReliable(track, st.positions, now) && now - st.activeSinceMs < FIRST_WARNING_MAX_WAIT_MS) return;
       const note = prevStatus === "dormant" ? `Track #${track.id} reappeared after going dormant; re-checking campaign` : undefined;
       this.launch(track, st, "investigate", note);
       return;

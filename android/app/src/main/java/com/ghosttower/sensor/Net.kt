@@ -1,8 +1,5 @@
 package com.ghosttower.sensor
 
-import android.annotation.SuppressLint
-import android.content.Context
-import android.location.LocationManager
 import org.json.JSONArray
 import org.json.JSONObject
 import java.net.HttpURLConnection
@@ -65,17 +62,6 @@ object Reporter {
 
     /** The demo pin, coarsened like any report. Used for simulated (debug/demo) hits. */
     fun pinnedLocation(): Pair<Double, Double> = coarsen(Demo.LAT) to coarsen(Demo.LON)
-
-    @SuppressLint("MissingPermission")
-    fun coarseLocation(ctx: Context): Pair<Double, Double> {
-        try {
-            val lm = ctx.getSystemService(LocationManager::class.java)
-            val loc = lm.getLastKnownLocation(LocationManager.NETWORK_PROVIDER)
-            if (loc != null) return coarsen(loc.latitude) to coarsen(loc.longitude)
-        } catch (_: Exception) {
-        }
-        return coarsen(Demo.LAT) to coarsen(Demo.LON) // pinned demo location
-    }
 
     fun send(
         tsMs: Long, lat: Double, lon: Double, ratDrop: Boolean, ratDropSecs: Float,

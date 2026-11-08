@@ -7,7 +7,6 @@ import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
 import android.app.Service
-import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
@@ -15,13 +14,10 @@ import android.os.Build
 import android.os.Handler
 import android.os.IBinder
 import android.os.Looper
-import android.provider.Telephony
 import android.telephony.CellInfo
 import android.telephony.CellInfoGsm
 import android.telephony.CellInfoLte
 import android.telephony.CellInfoNr
-import android.telephony.PhoneStateListener
-import android.telephony.TelephonyCallback
 import android.telephony.TelephonyManager
 import android.telephony.CellInfoWcdma
 import android.util.Log
@@ -70,45 +66,21 @@ object Notifier {
     }
 }
 
-/** Watches the data network type (real telephony callbacks). */
-class NetworkWatcher(private val ctx: Context) {
+/**
+ * Read-only view of the phone's real radio, for the home screen only. It drives nothing: the 2G
+ * drop and the text that the detection pipeline reacts to are simulated by the demo trigger.
+ */
+class RadioInfo(ctx: Context) {
     private val tm = ctx.getSystemService(TelephonyManager::class.java)
-    private var callback: Any? = null
 
     @SuppressLint("MissingPermission")
-    fun start() {
-        if (ctx.checkSelfPermission(Manifest.permission.READ_PHONE_STATE) != PackageManager.PERMISSION_GRANTED) return
-        Pipeline.onNetworkType(tm.dataNetworkType)
-        if (Build.VERSION.SDK_INT >= 31) {
-            val cb = object : TelephonyCallback(), TelephonyCallback.DataConnectionStateListener {
-                override fun onDataConnectionStateChanged(state: Int, networkType: Int) {
-                    Pipeline.onNetworkType(networkType)
-                }
-            }
-            callback = cb
-            tm.registerTelephonyCallback(ctx.mainExecutor, cb)
-        } else {
-            @Suppress("DEPRECATION")
-            val l = object : PhoneStateListener() {
-                @Deprecated("legacy listener for API < 31")
-                override fun onDataConnectionStateChanged(state: Int, networkType: Int) {
-                    Pipeline.onNetworkType(networkType)
-                }
-            }
-            callback = l
-            @Suppress("DEPRECATION")
-            tm.listen(l, PhoneStateListener.LISTEN_DATA_CONNECTION_STATE)
-        }
+    fun networkName(): String = try {
+        Pipeline.networkName(tm.dataNetworkType)
+    } catch (e: Exception) {
+        "unavailable"
     }
 
-    fun stop() {
-        val cb = callback ?: return
-        if (Build.VERSION.SDK_INT >= 31) tm.unregisterTelephonyCallback(cb as TelephonyCallback)
-        else @Suppress("DEPRECATION") tm.listen(cb as PhoneStateListener, PhoneStateListener.LISTEN_NONE)
-        callback = null
-    }
-
-    /** Best-effort cell id for the home screen. Needs location permission on most devices. */
+    /** Best-effort cell id. Needs location permission on most devices. */
     @SuppressLint("MissingPermission")
     fun cellId(): String = try {
         val cells: List<CellInfo> = tm.allCellInfo ?: emptyList()
@@ -126,17 +98,7 @@ class NetworkWatcher(private val ctx: Context) {
     }
 }
 
-class SmsReceiver : BroadcastReceiver() {
-    override fun onReceive(context: Context, intent: Intent) {
-        if (intent.action != Telephony.Sms.Intents.SMS_RECEIVED_ACTION) return
-        Pipeline.init(context)
-        val body = Telephony.Sms.Intents.getMessagesFromIntent(intent)
-            .joinToString("") { it.messageBody ?: "" }
-        if (body.isNotEmpty()) Pipeline.onSms(body)
-    }
-}
-
-/** Demo mode: when a simulated blaster's active track comes near the pinned phone, fire the debug path once. */
+/** The demo trigger: when a simulated blaster's active track comes near the pinned phone, fire the demo path once. */
 class DemoWatcher {
     private val handler = Handler(Looper.getMainLooper())
     private val io = Executors.newSingleThreadExecutor()
@@ -181,7 +143,6 @@ class DemoWatcher {
 }
 
 class SensorService : Service() {
-    private var watcher: NetworkWatcher? = null
     private var demo: DemoWatcher? = null
 
     override fun onBind(intent: Intent?): IBinder? = null
@@ -189,24 +150,14 @@ class SensorService : Service() {
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         Pipeline.init(this)
         startForeground(1002, Notifier.foreground(this))
-        if (watcher == null) watcher = NetworkWatcher(this).also { it.start() }
-        val demoMode = intent?.getBooleanExtra(EXTRA_DEMO, false) == true
-        if (demoMode) {
-            if (demo == null) demo = DemoWatcher()
-            demo?.start()
-        } else {
-            demo?.stop()
-        }
+        // The demo trigger is the only mode: there is no real 2G or SMS listener in this build.
+        if (demo == null) demo = DemoWatcher()
+        demo?.start()
         return START_STICKY
     }
 
     override fun onDestroy() {
-        watcher?.stop()
         demo?.stop()
         super.onDestroy()
-    }
-
-    companion object {
-        const val EXTRA_DEMO = "demo"
     }
 }
