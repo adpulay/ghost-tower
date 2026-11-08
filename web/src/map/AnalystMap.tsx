@@ -8,6 +8,8 @@ import { focusCampaign, focusTrack } from "../spacetime/focusTrack";
 const CENTER: LatLon = [32.9905, -96.7545]; // UTD / Campbell Rd, Richardson
 const EVENT_WINDOW_MS = 120_000; // matches the recluster window
 const FLASH_MS = 4_000;
+/** After the user drags or zooms, leave the camera alone for this long. */
+const USER_MOVED_HOLD_MS = 20_000;
 
 const trackIcon = L.divIcon({
   className: "sym sym-hostile",
@@ -34,6 +36,7 @@ export function AnalystMap() {
   const dynamicRef = useRef<L.LayerGroup | null>(null);
   const trackMarkerRef = useRef<L.Marker | null>(null);
   const targetRef = useRef<LatLon | null>(null);
+  const userMovedAtRef = useRef(0);
   const lastAlertRef = useRef<{ id: number; at: number }>({ id: 0, at: 0 });
 
   // Events fade on wall-clock time even when no new rows arrive.
@@ -49,6 +52,10 @@ export function AnalystMap() {
       attribution: "&copy; OpenStreetMap contributors",
     }).addTo(map);
     mapRef.current = map;
+    // Our own panTo() fires neither of these, so they only mark real user movement.
+    const markMoved = () => (userMovedAtRef.current = Date.now());
+    map.on("dragstart", markMoved);
+    map.on("zoomstart", markMoved);
     dynamicRef.current = L.layerGroup().addTo(map);
 
     // Smooth track marker: ease toward the latest estimate every frame.
@@ -158,6 +165,11 @@ export function AnalystMap() {
     trackMarkerRef.current.bindTooltip(
       `Track ${t.id}, ${t.status}, ${(t.confidence * 100).toFixed(0)}% confidence`,
     );
+    // Keep the blaster on screen: the real route can start well outside the default view, and the
+    // stat tiles cover the map edges, so recentre once it leaves the middle 60% of the view.
+    if (Date.now() - userMovedAtRef.current > USER_MOVED_HOLD_MS && !map.getBounds().pad(-0.2).contains([t.lat, t.lon])) {
+      map.panTo([t.lat, t.lon], { animate: true, duration: 1 });
+    }
   }, [tables.track]);
 
   const live = tables.anomaly_event.filter((e) => now - e.ts_ms <= EVENT_WINDOW_MS).length;
