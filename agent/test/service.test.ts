@@ -4,7 +4,7 @@ import { MockPolicy } from "../src/llm/mockPolicy.js";
 import { runScenario } from "../src/runScenario.js";
 import { SCENARIOS } from "../src/scenarios.js";
 import {
-  AgentService, DIRECTION_TOLERANCE_DEG, FIRST_WARNING_MAX_WAIT_MS, STALE_PREDICTION_MS, directionReliable, refreshHeading,
+  AgentService, DIRECTION_TOLERANCE_DEG, FIRST_WARNING_MAX_WAIT_MS, STALE_PREDICTION_MS, directionReliable, refreshHeading, type AgentMode,
 } from "../src/service.js";
 import { bearingDeg } from "../src/geo.js";
 import type { ChatModel } from "../src/llm/types.js";
@@ -168,16 +168,16 @@ test("a real turn (heading and movement both go north) still replans, once", asy
 
 // ---- the route (and the warning zone drawn from it) refreshes regularly, and follows a turn ----
 
-async function driveRefresh(phases: Phase[]) {
+async function driveRefresh(phases: Phase[], agentMode: AgentMode = "llm") {
   let now = T0;
   const w = new MemoryWorld(() => now);
   let calls = 0;
   const mock = new MockPolicy();
   const counting: ChatModel = { name: "counting", chat: (m) => { calls++; return mock.chat(m); } };
-  const svc = new AgentService(w, counting, { now: () => now });
+  const svc = new AgentService(w, counting, { now: () => now, agentMode });
   let lat = LAT, lon = -96.79;
   const seen: number[] = [];
-  const snapshots: { sec: number; path: [number, number][]; replans: number; calls: number }[] = [];
+  const snapshots: { sec: number; path: [number, number][]; replans: number; calls: number; alerts: number }[] = [];
   let sec = 0;
   for (const p of phases) {
     for (let i = 0; i < p.secs; i++, sec++) {
@@ -191,18 +191,18 @@ async function driveRefresh(phases: Phase[]) {
       await svc.idle();
       const pred = w.predictions.get(5);
       if (pred && !seen.includes(pred.updated_ms)) seen.push(pred.updated_ms);
-      snapshots.push({ sec, path: pred ? JSON.parse(pred.path_json) : [], replans: w.traces.filter((t) => t.kind === "replan").length, calls });
+      snapshots.push({ sec, path: pred ? JSON.parse(pred.path_json) : [], replans: w.traces.filter((t) => t.kind === "replan").length, calls, alerts: w.alerts.length });
       now += 1000;
     }
   }
   return { w, calls, seen, snapshots };
 }
 
-test("the predicted route refreshes every few seconds without calling the model", async () => {
+for (const agentMode of ["playbook", "llm"] as const) test(`the predicted route refreshes every few seconds without calling the model (${agentMode} mode)`, async () => {
   const east: Phase = { secs: 60, speed: 12, heading: 90, eastMps: 12, northMps: 0 };
-  const { w, seen, snapshots } = await driveRefresh([east]);
-  // Investigation done (it alone uses the model); then count how many times the route was re-published.
-  const doneAt = snapshots.find((s) => w.alerts.length > 0 && s.calls > 0)!;
+  const { w, seen, snapshots } = await driveRefresh([east], agentMode);
+  // Investigation done (in llm mode it alone uses the model); then count how many times the route was re-published.
+  const doneAt = snapshots.find((s) => s.alerts > 0)!;
   const after = snapshots.filter((s) => s.sec > doneAt.sec);
   assert.equal(after.at(-1)!.calls, doneAt.calls, "no model calls after the investigation: refreshes are plain computation");
   const expected = Math.floor((60 - doneAt.sec) / (STALE_PREDICTION_MS / 1000));

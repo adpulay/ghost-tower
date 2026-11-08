@@ -37,7 +37,7 @@ vllm serve --model "nvidia/NVIDIA-Nemotron-Nano-3-30B-A3B-FP8" --dtype auto --tr
 
 | Track event | Agent action | Trace |
 |---|---|---|
-| goes `active` (or comes back from `dormant`) | **investigate** once its direction can be trusted (see below): group campaign, check origin, predict route, warn path | `plan` … `summary` |
+| goes `active` (or comes back from `dormant`) | **investigate** once its direction can be trusted (see below): group campaign, check origin, predict route, warn path. Run as a **playbook** (below) | `plan` … `summary` |
 | heading changes > 45° from the last prediction (speed ≥ 2 m/s, once the turn settles) | **replan**: re-predict and re-warn | `replan` (highlighted on the panel) |
 | prediction older than 4 s | **refresh**: re-predict and re-publish the route. **Plain computation, no model call**, no log lines. Also runs mid-turn, aimed along where the track is actually going, so the route and the warning zone drawn from it follow the car instead of waiting for the replan | none (the map shows the new path and zone) |
 | goes `dormant` | nothing to do | `summary` "Track dormant, watching for campaign reappearance" |
@@ -47,6 +47,16 @@ so a prediction made at once points at nobody (seen live: heading northwest for 
 warning reached 0 phones in three runs). The first investigation starts when the track is moving (>= 2 m/s)
 and its reported heading is within 45 degrees of where its position has actually gone over the last 8 s,
 or after 25 s regardless (`FIRST_WARNING_MAX_WAIT_MS`). Replans and refreshes are unaffected.
+
+**Playbook, not a tool loop (`src/playbook.ts`, `AGENT_MODE`).** By default the investigation is a short playbook in
+code: the independent steps run in parallel and the model is called **once**, inside `draft_report`, to write
+the warning text. Investigate is `[rdap_domain_age | carrier_smsc_lookup | predict_route]` → `[agent_link_campaign |
+agent_set_prediction]` → `draft_report` → `send_warning` → `agent_record_alert`; replan is `predict_route` →
+`[agent_set_prediction | draft_report]` → `send_warning` → `agent_record_alert`. Same tools, same log lines and same
+fact-based closing line as before. `agent_trace` writes go through a per-track queue that keeps their order but
+does not block the actions, so the map updates first and the log catches up. In the old model loop every step was
+a model round trip (about 11 per investigation, ~12 s), and the model ran the same eight tools in the same order
+every time. Set `AGENT_MODE=llm` to get the model-driven loop back (the model chooses tools turn by turn).
 
 Guardrails:
 - At most 12 model steps per run (a model that stops before its mode's required tools are done gets up to 2 reminders; the closing log line is built from facts, see below), a 20 s timeout per model call, and one retry. Failures write a

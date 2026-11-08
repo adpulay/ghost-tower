@@ -1,5 +1,6 @@
 import { predictRoute } from "../tools/predict_route/index.js";
 import { Investigator, type Mode, type RunResult } from "./agent.js";
+import { PlaybookInvestigator } from "./playbook.js";
 import { bearingDeg, compass, haversineM, headingDelta } from "./geo.js";
 import type { ChatModel } from "./llm/types.js";
 import { writeTrace } from "./trace.js";
@@ -96,7 +97,21 @@ export function directionReliable(
   return headingDelta(track.heading_deg, bearingDeg(from, to)) <= DIRECTION_TOLERANCE_DEG;
 }
 
+/**
+ * "playbook" (default): code runs the investigation steps (independent ones in parallel) and the model is
+ * called once, to write the warning text. "llm": the model chooses tools turn by turn (slower: ~11 model
+ * round trips per investigation). Set with AGENT_MODE.
+ */
+export type AgentMode = "playbook" | "llm";
+export const agentModeFromEnv = (env = process.env): AgentMode => (env.AGENT_MODE === "llm" ? "llm" : "playbook");
+
+interface Runner {
+  run(track: Track, mode: Mode, note?: string): Promise<RunResult>;
+  flushTraces?(): Promise<void>;
+}
+
 export interface ServiceOptions {
+  agentMode?: AgentMode;
   now?: () => number;
   log?: (entry: Record<string, unknown>) => void;
   maxSteps?: number;
@@ -111,7 +126,7 @@ export interface ServiceOptions {
  */
 export class AgentService {
   private state = new Map<number, TrackState>();
-  private investigator: Investigator;
+  private investigator: Runner;
   private now: () => number;
   private log?: (entry: Record<string, unknown>) => void;
   private onRun?: (r: RunResult) => void;
@@ -122,7 +137,10 @@ export class AgentService {
     this.now = opts.now ?? Date.now;
     this.log = opts.log;
     this.onRun = opts.onRun;
-    this.investigator = new Investigator(world, model, { now: this.now, log: this.log, maxSteps: opts.maxSteps });
+    this.investigator =
+      (opts.agentMode ?? agentModeFromEnv()) === "llm"
+        ? new Investigator(world, model, { now: this.now, log: this.log, maxSteps: opts.maxSteps })
+        : new PlaybookInvestigator(world, { now: this.now, log: this.log });
   }
 
   start(pollMs = 1000): void {
@@ -148,6 +166,7 @@ export class AgentService {
   /** Wait for every running investigation (used by evals and tests). */
   async idle(): Promise<void> {
     await Promise.all([...this.state.values()].map((s) => s.running).filter(Boolean));
+    await this.investigator.flushTraces?.();
   }
 
   async tick(): Promise<void> {

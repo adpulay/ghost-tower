@@ -307,7 +307,7 @@ export function actionsSummary(trackId: number, toolsCalled: readonly string[]):
   return done.length ? `Track #${trackId}: ${done.join(", ")}.` : `Track #${trackId}: no actions completed.`;
 }
 
-function renderArgs(args: Record<string, unknown>): string {
+export function renderArgs(args: Record<string, unknown>): string {
   const parts: string[] = [];
   for (const [k, v] of Object.entries(args)) {
     if (v === undefined || v === null || k === "track_id") continue;
@@ -318,7 +318,7 @@ function renderArgs(args: Record<string, unknown>): string {
   return parts.length ? `(${parts.join(", ")})` : "";
 }
 
-function errMsg(e: unknown): string {
+export function errMsg(e: unknown): string {
   if (e instanceof Error) return e.name === "TimeoutError" ? "timed out after 20 s" : e.message;
   return String(e);
 }
