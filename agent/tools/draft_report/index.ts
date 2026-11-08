@@ -18,7 +18,10 @@ import { renderPrompt, type PromptFacts } from "./prompts.js";
 export type ReportKind = "police" | "registrar" | "warning";
 
 export const POLICE_MAX_LINES = 5;
-const DEFAULT_DRAFT_TIMEOUT_MS = 8_000;
+// Measured on the real Brev Nemotron (reasoning on): median 4.3 s, max 7.5 s over 20 warnings. 12 s leaves
+// headroom without exceeding the agent's own 20 s model timeout. Do not set NEMOTRON_THINKING=0 for this
+// server: it returned empty text for every draft.
+const DEFAULT_DRAFT_TIMEOUT_MS = 12_000;
 
 export interface DraftReportDeps {
   world: World;
