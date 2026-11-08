@@ -1,7 +1,8 @@
 import { Route, Routes } from "react-router-dom";
 import { AnalystMap } from "./map/AnalystMap";
+import { ActivityFeed } from "./shell/ActivityFeed";
 import { IncidentPanel } from "./shell/IncidentPanel";
-import { PatrolSlot, TracePanelSlot } from "./shell/Slots";
+import { PatrolSlot } from "./shell/Slots";
 import { TopBar } from "./shell/TopBar";
 
 export default function App() {
@@ -13,11 +14,11 @@ export default function App() {
           <div className="console">
             <TopBar />
             <div className="console-body">
-              <AnalystMap />
-              <aside className="console-side">
+              <main className="console-side">
                 <IncidentPanel />
-                <TracePanelSlot />
-              </aside>
+                <ActivityFeed />
+              </main>
+              <AnalystMap />
             </div>
           </div>
         }

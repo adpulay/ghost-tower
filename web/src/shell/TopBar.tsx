@@ -3,12 +3,12 @@ import { NavLink } from "react-router-dom";
 import { useTables } from "../spacetime/SpacetimeContext";
 import { towerMark } from "./symbols";
 
-const FEED_LABEL = { connected: "Live feed", connecting: "Connecting", error: "Feed down" } as const;
+const FEED_LABEL = { connected: "Live", connecting: "Connecting…", error: "Connection lost" } as const;
 
 function useClock() {
   const [now, setNow] = useState(() => new Date());
   useEffect(() => {
-    const id = setInterval(() => setNow(new Date()), 1000);
+    const id = setInterval(() => setNow(new Date()), 15_000);
     return () => clearInterval(id);
   }, []);
   return now;
@@ -17,33 +17,29 @@ function useClock() {
 export function TopBar() {
   const { status, debug } = useTables();
   const now = useClock();
-  const time = now.toLocaleTimeString([], { hour12: false, hour: "2-digit", minute: "2-digit", second: "2-digit" });
-  const zone = now.toLocaleTimeString([], { timeZoneName: "short" }).split(" ").pop();
 
   return (
     <header className="topbar">
-      <NavLink to="/" className="topbar-brand" aria-label="Ghost Tower, analyst map">
-        <span className="topbar-mark" dangerouslySetInnerHTML={{ __html: towerMark(30) }} />
+      <NavLink to="/" className="topbar-brand" aria-label="Ghost Tower home">
+        <span className="topbar-mark" dangerouslySetInnerHTML={{ __html: towerMark(26) }} />
         <span className="topbar-word">Ghost Tower</span>
       </NavLink>
-      <span className="topbar-place">Fake cell site watch, Richardson TX</span>
 
       <nav className="topbar-nav" aria-label="Views">
-        <NavLink to="/" end>Analyst map</NavLink>
-        <NavLink to="/patrol">Patrol tablet</NavLink>
+        <NavLink to="/" end>Overview</NavLink>
+        <NavLink to="/patrol">Patrol view</NavLink>
       </nav>
 
       <div className="topbar-right">
-        {/* Always on: the blaster and most phones are simulated, whatever the data source. */}
-        <span className="flag flag-sim">Simulated data</span>
-        {debug && <span className="flag flag-debug">Ground truth visible</span>}
+        {/* Always on: the fake tower and most phones are simulated, whatever the data source. */}
+        <span className="topbar-chip" title="The fake tower and most phones in this demo are simulated">Simulated data</span>
+        {debug && <span className="topbar-chip">Answer key shown</span>}
         <span className={`feed feed-${status}`} role="status">
           <i aria-hidden />
           {FEED_LABEL[status]}
         </span>
         <time className="clock" dateTime={now.toISOString()}>
-          {time}
-          <small>{zone}</small>
+          {now.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}
         </time>
       </div>
     </header>
