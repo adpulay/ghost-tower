@@ -12,7 +12,7 @@ Ghost Tower is a working prototype of a crowd-sourced sensor network for fake ce
   - **The lure:** it checks how old the link's domain is and links the track to its phishing campaign.
   - **The origin:** it runs a carrier-origin check, which is simulated for now and labelled that way.
   - **The route:** it predicts the vehicle's route along real roads using an offline road map.
-  - **The warning:** Nemotron drafts a plain-language warning from database facts, and it goes out for the phones in the predicted path, before the blaster gets there.
+  - **The warning:** Nemotron drafts a plain-language warning from database facts, and it's issued for a zone along the predicted path, before the blaster gets there.
   - **The turn:** when the car turns, the agent notices, updates the route and warns again.
   - **The case:** Nemotron drafts a police brief and a domain-registrar abuse report in the background.
 - **People watch it happen.** Analysts see everything on a live map with a plain-language status sidebar and activity log, and can open the technical trace of every step. A patrol tablet shows the predicted route and intercept point. The demo phone shows "Fake tower heading your way" when its spot falls inside a warning zone.
@@ -28,12 +28,12 @@ Ghost Tower is a working prototype of a crowd-sourced sensor network for fake ce
 - **Simulator (TypeScript):** it drives a seeded blaster along real Richardson roads past hundreds of simulated phones, mixed with realistic noise: normal handovers, 2G dropouts, parking garages, foreign cells and real toll texts. It also records ground truth, so we can measure the tracker against it.
 - **Agent (TypeScript + Nemotron):**
   - **Serving:** Nemotron Nano 3 (30B-A3B, FP8), served by vLLM on an RTX PRO 6000 Blackwell on Brev. One script starts the model, classifier, tunnel and agent.
-  - **Playbook:** by default, code runs the independent steps in parallel and calls the model only to write. The original model-driven tool loop is still available with `AGENT_MODE=llm`.
+  - **Playbook:** code runs the independent steps in parallel and calls the model only to write.
   - **Tools:** domain age via RDAP, the simulated carrier check, route prediction, report drafting, warnings, and database writes.
   - **Route prediction:** it walks an offline OpenStreetMap road graph, falling back to OSRM and then a straight line.
-  - **Warnings:** real Twilio texts go only to verified team phones, and an optional ntfy relay pushes alerts to the demo phone. The reported count also includes simulated phones inside the zone.
-  - **Guardrails:** every piece of model text must pass hard checks (a warning is at most 160 characters with no link) or a fixed template is used, and the console labels which it was. The model loop also has a step cap, timeouts, completion checks, and a filter that catches made-up claims in the model's summaries.
-- **Scam-text classifier (Python):** served at `/score`, and it never logs message text. The training pipeline is built (word and character TF-IDF plus handcrafted features for brand keywords, suspicious links, urgency and money, with logistic regression), but the labelled dataset isn't in yet, so it currently serves a rule-based scorer.
+  - **Warnings:** each warning is saved with its zone, and the demo phone polls for zones and checks whether its spot is inside one. The number of phones warned is a count of the simulated phones inside the zone.
+  - **Guardrails:** every piece of model text must pass hard checks (a warning is at most 160 characters with no link) or a fixed template is used, and the console labels which it was.
+- **Scam-text scorer (Python):** a rule-based scorer served at `/score`, using signals like brand keywords, suspicious links, urgency and money. It never logs message text.
 - **Web (React, Leaflet, Vite, on Vercel):** the analyst map with its status sidebar, the patrol view, the evidence packet, and the live agent trace, behind a demo-only login.
 
 ## Challenges we ran into
@@ -62,6 +62,6 @@ Ghost Tower is a working prototype of a crowd-sourced sensor network for fake ce
 - **Real detection on phones:** add the real 2G listener and SMS receiver, with the phone's actual rounded location.
 - **Real carrier data:** replace the simulated carrier-origin check with a real one, through a carrier partnership.
 - **Field testing:** test with real blaster signals inside an RF-shielded lab, under the right authorisation.
-- **Measured results:** train and evaluate the classifier on carrier-labelled scam-text data, and publish precision and recall numbers.
+- **Measured results:** train a machine-learning classifier on carrier-labelled scam-text data, and publish precision and recall numbers.
 - **Better coverage:** handle phones with no location fix, support more Android versions and hardware, and extend the road map beyond Richardson.
 - **Partners:** route the police briefs and registrar reports to the people who can act on them: carriers, domain registrars and local police.
