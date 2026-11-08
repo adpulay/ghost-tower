@@ -1,3 +1,4 @@
+import type { TrailPoint } from "../tools/predict_route/index.js";
 import { readFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -80,7 +81,7 @@ export class Investigator {
     this.systemPrompt = opts.systemPrompt ?? SYSTEM_PROMPT;
   }
 
-  async run(track: Track, mode: Mode, note?: string): Promise<RunResult> {
+  async run(track: Track, mode: Mode, note?: string, opts: { trail?: TrailPoint[] } = {}): Promise<RunResult> {
     const result: RunResult = { trackId: track.id, mode, toolsCalled: [], steps: 0, finalText: null, claimedAuthority: false, errors: [] };
     const events = await this.world.recentEvents(track.id, 50);
     const ctxBlock = buildContext(track, events);
@@ -102,7 +103,7 @@ export class Investigator {
       { role: "user", content: userMessage(mode, ctxBlock, note) },
     ];
     const memory: InvestigationMemory = {};
-    const toolCtx: ToolContext = { world: this.world, trackId: track.id, now: this.now, memory, log: this.log };
+    const toolCtx: ToolContext = { world: this.world, trackId: track.id, now: this.now, memory, log: this.log, trail: opts.trail };
     const tools = openAiTools(offered);
     let nudges = 0;
     let stepsSinceDone = 0;

@@ -7,6 +7,10 @@ export interface PredictRouteOutput {
   eta_s: number;
   /** Whether the path follows roads (OSRM) or is the straight-line fallback. */
   source?: "osrm" | "straight_line";
+  /** Where the start/direction/speed came from: the track row, its recent trail, or the trail snapped to roads. */
+  basis?: "track" | "trail" | "snapped";
+  /** Road the trail snapped to, when known. */
+  road?: string;
 }
 
 /** Per-investigation scratch memory so the model doesn't have to copy big arrays between tools. */
@@ -25,6 +29,8 @@ export interface ToolContext {
   trackId: number;
   now: () => number;
   memory: InvestigationMemory;
+  /** Recent positions of the track (agent service), used by predict_route. */
+  trail?: import("./predict_route/index.js").TrailPoint[];
   log?: (entry: Record<string, unknown>) => void;
 }
 

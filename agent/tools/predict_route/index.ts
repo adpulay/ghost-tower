@@ -45,6 +45,18 @@ export interface PredictRouteInput {
   heading_deg: number;
   speed_mps: number;
   horizon_s: number;
+  /**
+   * Recent track positions (oldest first, `ms` on the track's own clock). When given, the start,
+   * direction and speed come from snapping this trail to the road network instead of trusting the
+   * single noisy heading/speed above. Supplied by the agent service, never by the model.
+   */
+  trail?: TrailPoint[];
+}
+
+export interface TrailPoint {
+  lat: number;
+  lon: number;
+  ms: number;
 }
 
 export interface PredictRouteDeps {
@@ -52,6 +64,10 @@ export interface PredictRouteDeps {
   fetchJson?: (url: string) => Promise<unknown>;
   /** Force the straight-line projection (overrides PREDICT_ROUTE_OFFLINE). */
   offline?: boolean;
+  /** How to use `trail`: snap to roads (default), least-squares fit only, or ignore it. For evals. */
+  trailMode?: "snap" | "fit" | "none";
+  /** Seconds the track lags the blaster (default REPORT_LAG_S; only applied when a trail is given). */
+  lagS?: number;
 }
 
 // ---- geometry ----
@@ -146,24 +162,195 @@ export async function osrmRoadLine(
   return line;
 }
 
+// ---- trail: motion fit and road snapping ----
+
+/** Trail points older than this (track clock) are ignored. Override with PREDICT_ROUTE_TRAIL_S. */
+export const TRAIL_WINDOW_MS = 60_000;
+const trailWindowMs = () => Number(process.env.PREDICT_ROUTE_TRAIL_S ?? TRAIL_WINDOW_MS / 1000) * 1000;
+/** OSRM's public server refuses larger map-matching search radii ("TooBig" at 50 m). Self-hosted: OSRM_MATCH_RADIUS_M. */
+const MATCH_RADIUS_M = () => Number(process.env.OSRM_MATCH_RADIUS_M ?? 40);
+/** OSRM's public server answers "TooBig" above roughly a dozen coordinates per match request. */
+const MAX_TRAIL_POINTS = 10;
+/** Below this much movement over the trail, there is no direction to snap. */
+const MIN_TRAIL_SPAN_M = 60;
+const MIN_MATCH_CONFIDENCE = 0.5;
+/** Short window used to notice a turn the 60 s fit has not caught up with. */
+const TURN_WINDOW_MS = 10_000;
+/** The short fit and the given heading must agree this closely to count as a turn. */
+const TURN_AGREE_DEG = 30;
+/** The snapped road's direction must agree with the trail's own fitted direction. */
+const MAX_MATCH_FIT_DEV_DEG = 45;
+/**
+ * A track trails the blaster: phones report after their 5-10 s on 2G plus delivery, and the module
+ * smooths over a window. Measured against simulator ground truth (eval/src/route_accuracy.ts):
+ * ~24 s / ~250 m behind, only 25-65 m to the side. Starting the path that far ahead helped at +30 s
+ * but hurt at +60/+120 s (it pushes the start past turns not yet seen), so it is off by default.
+ * PREDICT_ROUTE_LAG_S sets it (seconds; only applied with a trail).
+ */
+export const REPORT_LAG_S = 0;
+/** Road direction is measured over the last stretch of the snapped geometry. */
+const HEADING_BACK_M = 120;
+
+function recentTrail(trail: readonly TrailPoint[], windowMs = trailWindowMs()): TrailPoint[] {
+  const sorted = [...trail].filter((p) => Number.isFinite(p.lat) && Number.isFinite(p.lon) && Number.isFinite(p.ms)).sort((a, b) => a.ms - b.ms);
+  if (!sorted.length) return [];
+  const last = sorted[sorted.length - 1]!.ms;
+  const out: TrailPoint[] = [];
+  for (const p of sorted) {
+    if (last - p.ms > windowMs) continue;
+    if (out.length && out[out.length - 1]!.ms === p.ms) out[out.length - 1] = p;
+    else out.push(p);
+  }
+  return out;
+}
+
+/**
+ * Least-squares velocity over the trail (east/north metres against time), so one noisy fix can't
+ * flip the direction. Null when there are too few points or too little movement.
+ */
+export function fitMotion(trail: readonly TrailPoint[], windowMs?: number): { heading_deg: number; speed_mps: number; span_m: number } | null {
+  const pts = recentTrail(trail, windowMs);
+  if (pts.length < 3) return null;
+  const o = pts[0]!;
+  const mlat = rad(1) * EARTH_R;
+  const mlon = mlat * Math.cos(rad(o.lat));
+  const t = pts.map((p) => (p.ms - o.ms) / 1000);
+  const e = pts.map((p) => (p.lon - o.lon) * mlon);
+  const n = pts.map((p) => (p.lat - o.lat) * mlat);
+  const tm = t.reduce((s, x) => s + x, 0) / t.length;
+  const varT = t.reduce((s, x) => s + (x - tm) ** 2, 0);
+  if (varT < 25) return null; // under ~10 s of history
+  const slope = (ys: number[]) => {
+    const ym = ys.reduce((s, y) => s + y, 0) / ys.length;
+    return t.reduce((s, x, i) => s + (x - tm) * (ys[i]! - ym), 0) / varT;
+  };
+  const vE = slope(e), vN = slope(n);
+  const speed = Math.hypot(vE, vN);
+  const span = speed * (t[t.length - 1]! - t[0]!);
+  if (span < MIN_TRAIL_SPAN_M) return null;
+  return { heading_deg: mod(deg(Math.atan2(vE, vN)), 360), speed_mps: speed, span_m: span };
+}
+
+interface OsrmMatchResponse {
+  code?: string;
+  matchings?: { confidence: number; distance: number; geometry: { coordinates: [number, number][] } }[];
+  tracepoints?: ({ location: [number, number]; matchings_index: number; name?: string } | null)[];
+}
+
+export interface SnappedMotion {
+  lat: number;
+  lon: number;
+  heading_deg: number;
+  speed_mps: number;
+  confidence: number;
+  road?: string;
+}
+
+/**
+ * Snap the trail to roads with OSRM's map-matching service and read off where the blaster is now
+ * (on the road), which way that road runs, and how fast it has been covered. Null when the trail is
+ * too short, OSRM can't match it confidently, or the snapped direction disagrees with the trail.
+ */
+export async function snapTrail(trail: readonly TrailPoint[], fetchJson: (url: string) => Promise<unknown>): Promise<SnappedMotion | null> {
+  let pts = recentTrail(trail);
+  const fit = fitMotion(pts);
+  if (!fit) return null;
+  if (pts.length > MAX_TRAIL_POINTS) {
+    const step = (pts.length - 1) / (MAX_TRAIL_POINTS - 1);
+    pts = Array.from({ length: MAX_TRAIL_POINTS }, (_, i) => pts[Math.round(i * step)]!);
+  }
+  // OSRM wants strictly increasing whole-second timestamps.
+  const ts: number[] = [];
+  for (const p of pts) ts.push(Math.max(Math.floor(p.ms / 1000), (ts[ts.length - 1] ?? -Infinity) + 1));
+  const base = process.env.OSRM_URL ?? "https://router.project-osrm.org";
+  const url =
+    `${base}/match/v1/driving/${pts.map((p) => `${p.lon.toFixed(6)},${p.lat.toFixed(6)}`).join(";")}` +
+    `?timestamps=${ts.join(";")}&radiuses=${pts.map(() => MATCH_RADIUS_M()).join(";")}` +
+    `&geometries=geojson&overview=full&gaps=ignore&tidy=true`;
+  const data = (await fetchJson(url)) as OsrmMatchResponse;
+  if (data.code !== "Ok" || !data.matchings?.length || !data.tracepoints?.length) return null;
+
+  let lastIdx = -1;
+  for (let i = data.tracepoints.length - 1; i >= 0; i--) if (data.tracepoints[i]) { lastIdx = i; break; }
+  if (lastIdx < 0) return null;
+  const tp = data.tracepoints[lastIdx]!;
+  const m = data.matchings[tp.matchings_index];
+  if (!m || m.confidence < MIN_MATCH_CONFIDENCE) return null;
+  const line: LatLon[] = m.geometry.coordinates.map((c) => [c[1], c[0]]);
+  if (line.length < 2) return null;
+  const end: LatLon = [tp.location[1], tp.location[0]];
+
+  // Direction of the road over its last stretch up to the snapped position.
+  let endIdx = 0;
+  for (let i = 1; i < line.length; i++) if (haversine(line[i]!, end) < haversine(line[endIdx]!, end)) endIdx = i;
+  const upToEnd = [...line.slice(0, endIdx + 1), end].reverse();
+  const back = walk(upToEnd, Math.min(HEADING_BACK_M, lineLength(upToEnd)));
+  if (haversine(back, end) < 20) return null;
+  const heading = bearing(back, end);
+  if (angleDiff(heading, fit.heading_deg) > MAX_MATCH_FIT_DEV_DEG) return null;
+
+  let firstIdx = 0;
+  while (firstIdx < lastIdx && (!data.tracepoints[firstIdx] || data.tracepoints[firstIdx]!.matchings_index !== tp.matchings_index)) firstIdx++;
+  const dt = ts[lastIdx]! - ts[firstIdx]!;
+  const speed = dt > 0 ? m.distance / dt : fit.speed_mps;
+  return { lat: end[0], lon: end[1], heading_deg: heading, speed_mps: speed, confidence: m.confidence, road: tp.name || undefined };
+}
+
 // ---- tool ----
 
 const r6 = (p: LatLon): LatLon => [Math.round(p[0] * 1e6) / 1e6, Math.round(p[1] * 1e6) / 1e6];
 
 export async function predictRoute(input: PredictRouteInput, deps: PredictRouteDeps = {}): Promise<PredictRouteOutput> {
-  const { lat, lon } = input;
-  const reported = Math.min(MAX_SPEED_MPS, Math.max(0, Number(input.speed_mps) || 0));
-  const speed = reported >= MOVING_MPS ? Math.max(reported, MIN_MOVING_SPEED_MPS) : reported;
+  let lat = Number(input.lat), lon = Number(input.lon);
+  let reported = Math.min(MAX_SPEED_MPS, Math.max(0, Number(input.speed_mps) || 0));
+  let heading = Number(input.heading_deg) || 0;
   const horizon = Math.min(MAX_HORIZON_S, Math.max(SAMPLE_S, Number(input.horizon_s) || 300));
-  const heading = Number(input.heading_deg) || 0;
-  const distM = speed * horizon;
-
   const offline = deps.offline ?? process.env.PREDICT_ROUTE_OFFLINE === "1";
+  const fetchJson = deps.fetchJson ?? defaultFetchJson;
+
+  // Prefer the trail over the single heading/speed: its least-squares direction and speed (or, when
+  // enabled, the trail snapped to roads). On simulator ground truth this cut the median error at
+  // +60 s from 572 m to 403 m and at +120 s from 1,326 m to 758 m (eval/src/route_accuracy.ts).
+  let basis: PredictRouteOutput["basis"] = "track";
+  let road: string | undefined;
+  // Snapping is opt-in: on the public OSRM server (40 m radius cap, ~10 points) it matched about a
+  // third of trails and did not beat the plain fit. Worth trying with a self-hosted OSRM.
+  const trailMode = deps.trailMode ?? (process.env.PREDICT_ROUTE_SNAP === "1" ? "snap" : "fit");
+  if (input.trail?.length && trailMode !== "none") {
+    let fit = fitMotion(input.trail);
+    // A 60 s fit lags a turn. When the heading we were given (the service passes the last ~8 s of
+    // movement) and a fit of only the last TURN_WINDOW_MS agree with each other but not with the long
+    // fit, the blaster is turning: follow the given heading. A merely noisy heading has no such support.
+    const recent = fitMotion(input.trail, TURN_WINDOW_MS);
+    if (
+      fit && recent && reported >= MOVING_MPS &&
+      angleDiff(fit.heading_deg, heading) > MAX_MATCH_FIT_DEV_DEG &&
+      angleDiff(recent.heading_deg, heading) <= TURN_AGREE_DEG
+    ) fit = null;
+    let snapped: SnappedMotion | null = null;
+    if (fit && trailMode === "snap" && !offline) {
+      try {
+        snapped = await snapTrail(input.trail, fetchJson);
+      } catch {
+        snapped = null;
+      }
+    }
+    if (snapped) {
+      [lat, lon, heading, reported, road, basis] = [snapped.lat, snapped.lon, snapped.heading_deg, Math.min(MAX_SPEED_MPS, snapped.speed_mps), snapped.road, "snapped"];
+    } else if (fit) {
+      [heading, reported, basis] = [fit.heading_deg, Math.min(MAX_SPEED_MPS, fit.speed_mps), "trail"];
+    }
+  }
+  const speed = reported >= MOVING_MPS ? Math.max(reported, MIN_MOVING_SPEED_MPS) : reported;
+  const lagS = basis === "track" ? 0 : Math.max(0, deps.lagS ?? Number(process.env.PREDICT_ROUTE_LAG_S ?? REPORT_LAG_S));
+  const lagM = speed >= MOVING_MPS ? speed * lagS : 0;
+  const distM = lagM + speed * horizon;
+
   let source: "osrm" | "straight_line" = "straight_line";
   let line: LatLon[] | null = null;
   if (distM >= 1 && !offline) {
     try {
-      line = await osrmRoadLine(lat, lon, heading, distM, deps.fetchJson ?? defaultFetchJson);
+      line = await osrmRoadLine(lat, lon, heading, distM, fetchJson);
       if (line) source = "osrm";
     } catch {
       line = null; // timeout, rate limit, bad JSON: use the straight line
@@ -173,11 +360,11 @@ export async function predictRoute(input: PredictRouteInput, deps: PredictRouteD
 
   const steps = Math.floor(horizon / SAMPLE_S);
   const path: LatLon[] = [];
-  for (let i = 0; i <= steps; i++) path.push(walk(line, speed * SAMPLE_S * i));
+  for (let i = 0; i <= steps; i++) path.push(walk(line, lagM + speed * SAMPLE_S * i));
   if (horizon % SAMPLE_S) path.push(walk(line, distM));
   const eta = Math.round(horizon * INTERCEPT_FRAC);
-  const intercept = walk(line, speed * eta);
-  return { path: path.map(r6), intercept: r6(intercept), eta_s: eta, source };
+  const intercept = walk(line, lagM + speed * eta);
+  return { path: path.map(r6), intercept: r6(intercept), eta_s: eta, source, basis, ...(road ? { road } : {}) };
 }
 
 export const predictRouteTool: ToolDef<PredictRouteInput, PredictRouteOutput> = {
@@ -196,13 +383,14 @@ export const predictRouteTool: ToolDef<PredictRouteInput, PredictRouteOutput> = 
     required: ["lat", "lon", "heading_deg", "speed_mps", "horizon_s"],
   },
   async run(input, ctx) {
-    const out = await predictRoute(input);
+    // The trail comes from the service (ctx), never from the model's arguments.
+    const out = await predictRoute({ ...input, trail: ctx.trail });
     ctx.memory.lastPrediction = out;
     return out;
   },
   summarize(out) {
     const [la, lo] = out.intercept;
-    const how = out.source === "osrm" ? "along roads" : "straight-line";
+    const how = out.source === "osrm" ? (out.basis === "snapped" ? `along roads, snapped to ${out.road ?? "the road"}` : "along roads") : "straight-line";
     return `Predicted ${out.path.length}-point route (${how}); intercept at ${la.toFixed(4)}, ${lo.toFixed(4)} in ~${out.eta_s} s.`;
   },
 };

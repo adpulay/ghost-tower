@@ -1,4 +1,4 @@
-import { predictRoute } from "../tools/predict_route/index.js";
+import { predictRoute, TRAIL_WINDOW_MS, type TrailPoint } from "../tools/predict_route/index.js";
 import { Investigator, type Mode, type RunResult } from "./agent.js";
 import { PlaybookInvestigator } from "./playbook.js";
 import { bearingDeg, compass, haversineM, headingDelta } from "./geo.js";
@@ -56,6 +56,8 @@ interface TrackState {
   positions: { ms: number; lat: number; lon: number }[];
   /** When this track was first seen active (reset when it goes dormant). */
   activeSinceMs?: number;
+  /** Track positions over the last TRAIL_WINDOW_MS of the track's own clock (updated_ms), for predict_route. */
+  trail: TrailPoint[];
 }
 
 /**
@@ -106,7 +108,7 @@ export type AgentMode = "playbook" | "llm";
 export const agentModeFromEnv = (env = process.env): AgentMode => (env.AGENT_MODE === "llm" ? "llm" : "playbook");
 
 interface Runner {
-  run(track: Track, mode: Mode, note?: string): Promise<RunResult>;
+  run(track: Track, mode: Mode, note?: string, opts?: { trail?: TrailPoint[] }): Promise<RunResult>;
   flushTraces?(): Promise<void>;
 }
 
@@ -177,7 +179,7 @@ export class AgentService {
   private async onTrack(track: Track): Promise<void> {
     let st = this.state.get(track.id);
     if (!st) {
-      st = { lastStatus: "", investigated: false, running: null, headings: [], positions: [] };
+      st = { lastStatus: "", investigated: false, running: null, headings: [], positions: [], trail: [] };
       this.state.set(track.id, st);
     }
     const prevStatus = st.lastStatus;
@@ -187,6 +189,12 @@ export class AgentService {
     st.headings = st.headings.filter((h) => tickMs - h.ms <= TURN_SETTLE_WINDOW_MS);
     st.positions.push({ ms: tickMs, lat: track.lat, lon: track.lon });
     st.positions = st.positions.filter((p) => tickMs - p.ms <= DIRECTION_WINDOW_MS);
+    // The trail is keyed on the track's own clock, so it is right at any sim speed; one point per update.
+    const trackMs = Number(track.updated_ms);
+    if (Number.isFinite(trackMs) && trackMs !== st.trail[st.trail.length - 1]?.ms) {
+      st.trail.push({ lat: track.lat, lon: track.lon, ms: trackMs });
+      st.trail = st.trail.filter((p) => trackMs - p.ms <= TRAIL_WINDOW_MS);
+    }
 
     if (track.status === "dormant") {
       if (prevStatus !== "dormant" && prevStatus !== "") {
@@ -195,6 +203,7 @@ export class AgentService {
       st.investigated = false; // reactivation (same url_hash) gets a fresh investigation
       st.predictionMs = undefined;
       st.activeSinceMs = undefined;
+      st.trail = []; // a blaster back on air may be somewhere else entirely
       return;
     }
     if (track.status !== "active" || st.running) return;
@@ -259,7 +268,7 @@ export class AgentService {
     const heading = refreshHeading(track, st.positions, now, st.predictionHeading);
     try {
       const out = await predictRoute({
-        lat: track.lat, lon: track.lon, heading_deg: heading, speed_mps: track.speed_mps, horizon_s: 300,
+        lat: track.lat, lon: track.lon, heading_deg: heading, speed_mps: track.speed_mps, horizon_s: 300, trail: st.trail,
       });
       await this.world.agentSetPrediction({
         track_id: track.id,
@@ -283,7 +292,7 @@ export class AgentService {
   private launch(track: Track, st: TrackState, mode: Mode, note?: string): void {
     this.log?.({ event: "launch", track: track.id, mode });
     st.running = this.investigator
-      .run(track, mode, note)
+      .run(track, mode, note, { trail: [...st.trail] })
       .then((r) => {
         if (mode === "investigate") st.investigated = true;
         if (r.predictionAtMs !== undefined) {

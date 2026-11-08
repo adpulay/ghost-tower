@@ -1,3 +1,4 @@
+import type { TrailPoint } from "../tools/predict_route/index.js";
 import { TOOLS_BY_NAME, type InvestigationMemory, type ToolContext } from "../tools/index.js";
 import { buildContext, errMsg, factSummary, renderArgs, type Mode, type RunResult } from "./agent.js";
 import { clip, withSimulatedTag, writeTrace } from "./trace.js";
@@ -53,13 +54,13 @@ export class PlaybookInvestigator {
     );
   }
 
-  async run(track: Track, mode: Mode, note?: string): Promise<RunResult> {
+  async run(track: Track, mode: Mode, note?: string, opts: { trail?: TrailPoint[] } = {}): Promise<RunResult> {
     const result: RunResult = { trackId: track.id, mode, toolsCalled: [], steps: 0, finalText: null, claimedAuthority: false, errors: [] };
     const quiet = mode === "refresh";
     const events = await this.world.recentEvents(track.id, 50);
     const ctx = buildContext(track, events);
     const memory: InvestigationMemory = {};
-    const toolCtx: ToolContext = { world: this.world, trackId: track.id, now: this.now, memory, log: this.log };
+    const toolCtx: ToolContext = { world: this.world, trackId: track.id, now: this.now, memory, log: this.log, trail: opts.trail };
     const say = (kind: TraceKind, text: string) => { if (!quiet) this.trace(track.id, kind, text); };
 
     /** Run one tool and log it exactly as the model loop does. Failures are recorded and do not stop the run. */
