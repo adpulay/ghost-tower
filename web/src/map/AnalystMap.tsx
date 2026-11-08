@@ -2,23 +2,27 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import L from "leaflet";
 import { parseLatLonList, pointInPolygon, type LatLon } from "../spacetime/geo";
 import { useTables } from "../spacetime/SpacetimeContext";
+import { FRIENDLY, hostileSvg, interceptSvg } from "../shell/symbols";
 
-const CENTER: LatLon = [32.9858, -96.7501]; // UTD / Campbell Rd, Richardson
+const CENTER: LatLon = [32.9905, -96.7545]; // UTD / Campbell Rd, Richardson
 const EVENT_WINDOW_MS = 120_000; // matches the recluster window
 const FLASH_MS = 4_000;
 
 const trackIcon = L.divIcon({
-  className: "",
-  html: '<div class="blaster-marker"></div>',
-  iconSize: [26, 26],
-  iconAnchor: [13, 13],
+  className: "sym sym-hostile",
+  html: hostileSvg(32),
+  iconSize: [32, 32],
+  iconAnchor: [16, 16],
 });
 const interceptIcon = L.divIcon({
-  className: "intercept-icon",
-  html: "★",
-  iconSize: [34, 34],
-  iconAnchor: [17, 17],
+  className: "sym",
+  html: interceptSvg(38),
+  iconSize: [38, 38],
+  iconAnchor: [19, 19],
 });
+
+const ALERT_ZONE = "#f2b705";
+const EVENT = "#f08a24";
 
 export function AnalystMap() {
   const { tables, status, detail, mode, debug } = useTables();
@@ -38,7 +42,7 @@ export function AnalystMap() {
   }, []);
 
   useEffect(() => {
-    const map = L.map(hostRef.current!, { zoomControl: true }).setView(CENTER, 14);
+    const map = L.map(hostRef.current!, { zoomControl: true }).setView(CENTER, 15);
     L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {
       maxZoom: 19,
       attribution: "&copy; OpenStreetMap contributors",
@@ -82,13 +86,13 @@ export function AnalystMap() {
     if (alert) {
       const flashing = now - lastAlertRef.current.at < FLASH_MS;
       L.polygon(parseLatLonList(alert.zone_json), {
-        color: "#f5c542",
-        weight: flashing ? 4 : 2,
-        fillColor: "#f5c542",
-        fillOpacity: flashing ? 0.4 : 0.18,
+        color: ALERT_ZONE,
+        weight: flashing ? 3 : 2,
+        fillColor: ALERT_ZONE,
+        fillOpacity: flashing ? 0.3 : 0.12,
         className: flashing ? "zone-flash" : "",
       })
-        .bindTooltip(`Alert zone · ${alert.recipients} phones warned`)
+        .bindTooltip(`Alert zone: ${alert.recipients} phones warned`)
         .addTo(layer);
     }
 
@@ -101,14 +105,14 @@ export function AnalystMap() {
         L.polyline(path, { color: "#1e3a8a", weight: 4, dashArray: "10 8" }).addTo(layer);
       }
       L.marker([p.intercept_lat, p.intercept_lon], { icon: interceptIcon })
-        .bindTooltip(`Intercept · ETA ${p.eta_s}s`)
+        .bindTooltip(`Intercept point, ETA ${p.eta_s} s at prediction`)
         .addTo(layer);
     }
 
     // Grey dots: simulated phones (mock source only; there is no phone table).
     for (const ph of tables.mock_phones) {
       L.circleMarker([ph.lat, ph.lon], {
-        radius: 5, color: "#6b7280", weight: 1, fillColor: "#9ca3af", fillOpacity: 0.7,
+        radius: 3.5, stroke: false, fillColor: "#8396ae", fillOpacity: 0.55,
       }).addTo(layer);
     }
 
@@ -118,9 +122,9 @@ export function AnalystMap() {
       if (age > EVENT_WINDOW_MS || age < -5000) continue;
       const fade = Math.max(0.1, 1 - age / EVENT_WINDOW_MS);
       L.circleMarker([e.lat, e.lon], {
-        radius: 7, color: "#c2410c", weight: 1, fillColor: "#fb923c", fillOpacity: fade, opacity: fade,
+        radius: 6, color: "#08111e", weight: 1.5, fillColor: EVENT, fillOpacity: fade, opacity: fade,
       })
-        .bindTooltip(`${e.brand || "event"} · fusion ${e.fusion_score.toFixed(2)} · ${e.source}`)
+        .bindTooltip(`${e.brand || "Unbranded"} report, fusion ${e.fusion_score.toFixed(2)}, from ${e.source}`)
         .addTo(layer);
     }
 
@@ -151,7 +155,7 @@ export function AnalystMap() {
       trackMarkerRef.current = L.marker([t.lat, t.lon], { icon: trackIcon, zIndexOffset: 1000 }).addTo(map);
     }
     trackMarkerRef.current.bindTooltip(
-      `Track ${t.id} · ${t.status} · conf ${(t.confidence * 100).toFixed(0)}% · ${t.speed_mps.toFixed(0)} m/s`,
+      `Track ${t.id}, ${t.status}, ${(t.confidence * 100).toFixed(0)}% confidence`,
     );
   }, [tables.track]);
 

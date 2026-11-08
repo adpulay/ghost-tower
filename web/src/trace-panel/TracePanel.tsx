@@ -5,12 +5,13 @@ import "./trace-panel.css";
 /** Marker the agent appends to tool results that came from a mocked tool (carrier lookup). */
 export const SIMULATED_TAG = "[simulated]";
 
-const KIND_META: Record<string, { label: string; icon: string }> = {
-  plan: { label: "Plan", icon: "◆" },
-  tool_call: { label: "Tool", icon: "→" },
-  tool_result: { label: "Result", icon: "←" },
-  replan: { label: "Re-plan", icon: "↻" },
-  summary: { label: "Summary", icon: "✓" },
+// Short dispatch-log codes in a fixed column, instead of decorative glyphs.
+const KIND_META: Record<string, { label: string; code: string }> = {
+  plan: { label: "Plan", code: "Plan" },
+  tool_call: { label: "Tool call", code: "Call" },
+  tool_result: { label: "Tool result", code: "Result" },
+  replan: { label: "Re-plan", code: "Re-plan" },
+  summary: { label: "Summary", code: "Done" },
 };
 
 export interface TracePanelProps {
@@ -21,6 +22,8 @@ export interface TracePanelProps {
   className?: string;
   /** Hide tool_call rows to save space on small screens. */
   compact?: boolean;
+  /** Set false when the host already shows the track header. */
+  showHeader?: boolean;
 }
 
 export function splitSimulated(text: string): { text: string; simulated: boolean } {
@@ -33,7 +36,7 @@ function clock(ts: number): string {
   return d.toLocaleTimeString([], { hour12: false, hour: "2-digit", minute: "2-digit", second: "2-digit" });
 }
 
-export function TracePanel({ track, traces, className, compact }: TracePanelProps) {
+export function TracePanel({ track, traces, className, compact, showHeader = true }: TracePanelProps) {
   const rows = useMemo(
     () =>
       [...traces]
@@ -70,6 +73,7 @@ export function TracePanel({ track, traces, className, compact }: TracePanelProp
   const status = track?.status ?? "";
   return (
     <section className={`gt-trace ${className ?? ""}`} aria-label="Agent trace">
+      {showHeader && (
       <header className="gt-trace__header">
         <div className="gt-trace__title">
           <span className="gt-trace__brand">Nemotron agent</span>
@@ -84,19 +88,22 @@ export function TracePanel({ track, traces, className, compact }: TracePanelProp
           </div>
         )}
       </header>
+      )}
 
       <ol className="gt-trace__list" ref={listRef} onScroll={onScroll} aria-live="polite">
         {rows.length === 0 && <li className="gt-trace__empty">Waiting for the agent…</li>}
         {rows.map((r) => {
-          const meta = KIND_META[r.kind] ?? { label: r.kind, icon: "·" };
+          const meta = KIND_META[r.kind] ?? { label: r.kind, code: r.kind };
           const { text, simulated } = splitSimulated(r.text);
           return (
             <li key={r.id} className={`gt-trace__row gt-trace__row--${r.kind}${r.id === freshId ? " gt-trace__row--fresh" : ""}`}>
-              <span className="gt-trace__icon" aria-hidden>
-                {meta.icon}
+              <time className="gt-trace__time" dateTime={new Date(r.ts_ms).toISOString()}>
+                {clock(r.ts_ms)}
+              </time>
+              <span className="gt-trace__icon" title={meta.label}>
+                {meta.code}
               </span>
               <span className="gt-trace__body">
-                {r.kind === "replan" && <span className="gt-trace__badge">Re-plan</span>}
                 <span className="gt-trace__text">{text}</span>
                 {simulated && (
                   <span className="gt-trace__sim" title="This tool is mocked for the demo">
@@ -104,9 +111,6 @@ export function TracePanel({ track, traces, className, compact }: TracePanelProp
                   </span>
                 )}
               </span>
-              <time className="gt-trace__time" dateTime={new Date(r.ts_ms).toISOString()}>
-                {clock(r.ts_ms)}
-              </time>
             </li>
           );
         })}
@@ -114,7 +118,7 @@ export function TracePanel({ track, traces, className, compact }: TracePanelProp
 
       {!stick && (
         <button type="button" className="gt-trace__jump" onClick={() => setStick(true)}>
-          ↓ Latest
+          Jump to latest
         </button>
       )}
     </section>
