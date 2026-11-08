@@ -103,10 +103,10 @@ export function AnalystMap() {
       const warnedTotal = tables.alert.reduce((sum, a) => sum + a.recipients, 0);
       const flashing = now - lastAlertRef.current.at < FLASH_MS;
       L.polygon(zone, {
-        color: "#f5c542",
-        weight: flashing ? 4 : 2,
-        fillColor: "#f5c542",
-        fillOpacity: flashing ? 0.4 : 0.18,
+        color: ALERT_ZONE,
+        weight: flashing ? 3 : 2,
+        fillColor: ALERT_ZONE,
+        fillOpacity: flashing ? 0.3 : 0.12,
         className: flashing ? "zone-flash" : "",
       })
         .bindTooltip(`Warning zone, follows the predicted path: ${warnedTotal} phones warned`)
