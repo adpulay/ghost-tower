@@ -7,23 +7,25 @@ import java.net.URL
 import kotlin.math.roundToLong
 
 /**
- * Pinned demo location: on Campbell Rd, 1,000 m along the demo-01 route (sim/routes/demo.json),
- * well before the blaster turns north onto Coit Rd (~2,290 m). Demo mode fires when an active
- * simulated track comes within TRIGGER_RADIUS_M, and debug/demo reports use this point so they
- * land in the simulated blaster's cluster (recluster joins events within 800 m). Also the
- * fallback when no real fix.
+ * Pinned demo location: on Coit Rd just past the turn, 2,500 m along the demo-01 route
+ * (sim/routes/demo.json; the blaster turns north onto Coit Rd at ~2,260 m). Demo mode fires when an
+ * active simulated track comes within TRIGGER_RADIUS_M, and debug/demo reports use this point so they
+ * land in the simulated blaster's cluster (recluster joins events within 800 m).
  *
- * Why here: replaying demo-01 on the real module (eval/src/local_run.ts) shows the track goes
- * active 12 s after the blaster starts and trails the true car by ~224 m (median). With this pin
- * demo mode fires at ~87 s of simulator time. At `sim run --speed 3x` that is a buzz about 0:57
- * into pitch/DEMO_SCRIPT.md, before the turn (~1:29). The previous pin (32.9859, -96.7712) was
- * on Coit Rd ~790 m north of Campbell, so it fired at ~247 s, after the turn.
- * If you move it, redo that replay, and keep the pitch script's timeline in step.
+ * Why here: the warning zone is a corridor AHEAD of the tower, so the phone has to sit ahead of the
+ * tower when the first warning goes out. The old pin (1,000 m along, on Campbell Rd) was within
+ * reach of the tower before the track was even active, so the phone got its scam text before any
+ * warning and was never inside a zone. In a 3x run of demo-01 the first warning with recipients is
+ * sent when the car is ~1,780 m along; its zone covers this pin ~720 m (~22 s at 3x) before the car
+ * gets here. The track estimate trails the car by ~224 m, so a 300 m trigger fires as the car
+ * approaches the pin, after the warning.
+ * If you move it, redo the check (compare the alerts' zone_json with the pin), and keep the pitch
+ * script's timeline and the web map's DEMO_PHONE in step.
  */
 object Demo {
-    const val LAT = 32.97875
-    const val LON = -96.78156
-    const val TRIGGER_RADIUS_M = 500.0
+    const val LAT = 32.98036
+    const val LON = -96.76805
+    const val TRIGGER_RADIUS_M = 300.0
 }
 
 private fun post(url: String, body: String, timeoutMs: Int = 5000): Pair<Int, String> {
@@ -87,6 +89,48 @@ object Reporter {
         val (code, body) = post(url, "SELECT sim_now_ms FROM dev_config")
         if (code !in 200..299) null
         else JSONArray(body).getJSONObject(0).getJSONArray("rows").optJSONArray(0)?.optLong(0)
+    } catch (e: Exception) {
+        null
+    }
+
+    /** One warning the agent sent: the corridor it covers, the message, and when it went out (agent clock). */
+    class ZoneAlert(
+        val id: Long, val trackId: Long, val zone: List<Pair<Double, Double>>, val message: String,
+        val sentMs: Long, val recipients: Int,
+    )
+
+    /** Every row of the alert table (a handful per run), or null if the database can't be reached. */
+    fun alerts(): List<ZoneAlert>? = try {
+        val url = "${BuildConfig.SPACETIME_URI}/v1/database/${BuildConfig.SPACETIME_DB}/sql"
+        val (code, body) = post(url, "SELECT * FROM alert")
+        if (code !in 200..299) null else {
+            val out = mutableListOf<ZoneAlert>()
+            val results = JSONArray(body)
+            for (i in 0 until results.length()) {
+                val r = results.getJSONObject(i)
+                val cols = r.getJSONObject("schema").getJSONArray("elements")
+                // Column name arrives as {"some": "id"} or a plain string, depending on server version.
+                val names = List(cols.length()) { k ->
+                    val n = cols.getJSONObject(k).opt("name")
+                    if (n is JSONObject) n.optString("some") else (n as? String ?: "")
+                }
+                val rows = r.getJSONArray("rows")
+                for (k in 0 until rows.length()) {
+                    val row = rows.getJSONArray(k)
+                    fun col(name: String): Any? = names.indexOf(name).let { if (it < 0) null else row.opt(it) }
+                    val zone = JSONArray(col("zone_json") as? String ?: "[]")
+                    out += ZoneAlert(
+                        id = (col("id") as Number).toLong(),
+                        trackId = (col("track_id") as Number).toLong(),
+                        zone = List(zone.length()) { z -> zone.getJSONArray(z).let { it.getDouble(0) to it.getDouble(1) } },
+                        message = col("message") as? String ?: "",
+                        sentMs = (col("sent_ms") as Number).toLong(),
+                        recipients = (col("recipients") as Number).toInt(),
+                    )
+                }
+            }
+            out
+        }
     } catch (e: Exception) {
         null
     }

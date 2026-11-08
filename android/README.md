@@ -21,10 +21,13 @@ Demo build. When the simulated fake tower's track passes the phone's pinned spot
    (the emulator reaches the host at `10.0.2.2`).
 3. Open the app, tap **Turn on sensor**, and grant the permissions. There is no mode switch: the demo trigger is always on.
 
-## The demo trigger
-- **Automatic:** the app polls the `track` table every 2 s. When an *active* track's estimated position comes within 500 m of the pinned spot (`Demo` in `Net.kt`), it fires once. It re-arms after the car leaves.
+## Warnings and the demo trigger
+- **Warning (zone):** the app also reads the `alert` table every 2 s. When an alert's warning zone covers the pinned spot, it shows "Fake tower heading your way" (the agent's message), once per tower. The zone test runs on the phone, so the phone's location is never sent to be warned. Alerts that already existed when the app started are ignored.
+- **Detection (proximity):** below.
+
+- **Automatic:** the app polls the `track` table every 2 s. When an *active* track's estimated position comes within 300 m of the pinned spot (`Demo` in `Net.kt`), it fires once. It re-arms after the car leaves.
 - **Manual:** the **Trigger the demo now** button, or a long-press on the title. It buzzes about 8 s later.
-- The phone always reports from the pinned spot (a fixed point on Campbell Rd, coarsened to 3 decimals), never from its GPS.
+- The phone always reports from the pinned spot (a fixed point on Coit Rd, just past the turn, coarsened to 3 decimals), never from its GPS.
 
 ## Code path
 Demo trigger → `Pipeline.fireDebug` → `Pipeline.onNetworkType` (simulated EDGE, then LTE) and `Pipeline.onSms` (sample text) → `ScoreClient` → `Reporter.send` → `Notifier`.

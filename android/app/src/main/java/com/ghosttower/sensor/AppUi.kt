@@ -142,6 +142,9 @@ class AppUi(private val act: Activity) {
         if (EventLog.all().any { it.kind == "text" && now - it.ts < 90_000 }) {
             return Hero(SignalState.ALERT, "Fake tower nearby", "Your phone was pulled onto a fake tower. Don't tap links in new texts.")
         }
+        if (EventLog.all().any { it.kind == "warning" && now - it.ts < 90_000 }) {
+            return Hero(SignalState.ATTENTION, "Fake tower heading your way", "Ghost Tower warned you before it reached you. Don't tap links in new texts.")
+        }
         Pipeline.problem?.let { return Hero(SignalState.ATTENTION, "Needs attention", it) }
         return Hero(SignalState.CLEAR, "Your signal looks clear", "Ghost Tower is watching for fake cell towers around you.")
     }
@@ -316,6 +319,7 @@ class AppUi(private val act: Activity) {
     }
 
     private fun badge(ev: ThreatEvent): View = when {
+        ev.kind == "warning" -> act.pill("Warning", Ui.p.amberInk, Ui.p.amberWash)
         ev.kind == "tower" -> act.pill("Fake tower", Ui.p.red, Ui.p.redWash)
         ev.score >= 0.9f -> act.pill("Scam text", Ui.p.red, Ui.p.redWash)
         else -> act.pill("Suspicious", Ui.p.amberInk, Ui.p.amberWash)
@@ -325,8 +329,12 @@ class AppUi(private val act: Activity) {
         gravity = Gravity.CENTER_VERTICAL
         setPadding(dp(18), dp(16), dp(18), dp(16))
         setOnClickListener { showAlertSheet(ev) }
-        val glyph = if (ev.kind == "tower") Glyph.TOWER else Glyph.ALERT
-        addView(iconDisc(glyph, Ui.p.red, Ui.p.redWash), act.lp(w = dp(42), h = dp(42), r = 14))
+        val warn = ev.kind == "warning"
+        val glyph = if (ev.kind == "tower" || warn) Glyph.TOWER else Glyph.ALERT
+        addView(
+            iconDisc(glyph, if (warn) Ui.p.amberInk else Ui.p.red, if (warn) Ui.p.amberWash else Ui.p.redWash),
+            act.lp(w = dp(42), h = dp(42), r = 14),
+        )
         addView(
             act.vbox().apply {
                 addView(act.text(ev.title, 16f, Ui.p.ink, bold = true))
@@ -422,7 +430,7 @@ class AppUi(private val act: Activity) {
         addView(
             act.card(18).apply {
                 addView(act.text("This demo build", 18f, Ui.p.ink, bold = true), act.lp(b = 8))
-                addView(infoRow("Demo spot", "Campbell Rd (fixed point)"))
+                addView(infoRow("Demo spot", "Coit Rd (fixed point)"))
                 addView(infoRow("Scam checker", BuildConfig.SCORE_URL.removePrefix("http://")))
                 addView(infoRow("Reports go to", BuildConfig.SPACETIME_DB))
                 addView(
@@ -541,7 +549,10 @@ class AppUi(private val act: Activity) {
                 setPadding(dp(22), dp(10), dp(22), dp(18))
                 isClickable = true
                 gravity = Gravity.CENTER_HORIZONTAL
-                addView(RadarView(act).apply { state = SignalState.ALERT }, act.lp(w = dp(210), h = dp(170)))
+                addView(
+                    RadarView(act).apply { state = if (ev.kind == "warning") SignalState.ATTENTION else SignalState.ALERT },
+                    act.lp(w = dp(210), h = dp(170)),
+                )
                 threatBody(this, ev, alert = true)
             }
             addView(card, FrameLayout.LayoutParams(MATCH, WRAP, Gravity.CENTER).apply { setMargins(dp(20), dp(20), dp(20), dp(20)) })
@@ -563,14 +574,16 @@ class AppUi(private val act: Activity) {
                 act.lp(b = 12),
             )
         }
+        val warn = ev.kind == "warning"
+        val titleColor = if (warn) Ui.p.amberInk else if (alert) Ui.p.red else Ui.p.ink
         box.addView(
-            act.text(if (alert) "Fake tower detected" else ev.title, if (alert) 24f else 22f, if (alert) Ui.p.red else Ui.p.ink, bold = true)
+            act.text(if (alert && !warn) "Fake tower detected" else ev.title, if (alert) 24f else 22f, titleColor, bold = true)
                 .apply { if (alert) gravity = Gravity.CENTER },
             act.lp(t = if (alert) 2 else 0),
         )
         box.addView(
             act.text(
-                if (alert) "Your phone was just pulled onto a fake cell tower. The text you received is fake. Don't tap the link."
+                if (alert && !warn) "Your phone was just pulled onto a fake cell tower. The text you received is fake. Don't tap the link."
                 else ev.detail,
                 15f, Ui.p.ink2,
             ).apply { if (alert) gravity = Gravity.CENTER },
@@ -595,7 +608,7 @@ class AppUi(private val act: Activity) {
             )
         }
         if (!alert) {
-            box.addView(infoRow("Where", "Campbell Rd (demo spot)"), act.lp(t = 10))
+            box.addView(infoRow("Where", "Coit Rd (demo spot)"), act.lp(t = 10))
             if (ev.brand.isNotBlank()) box.addView(infoRow("Pretending to be", ev.brand))
             if (ev.domain.isNotBlank()) box.addView(infoRow("Link", ev.domain))
         }
@@ -603,13 +616,18 @@ class AppUi(private val act: Activity) {
         box.addView(
             act.hbox().apply {
                 gravity = Gravity.CENTER_VERTICAL
+                val ok = warn || ev.reported
                 addView(
-                    iconDisc(if (ev.reported) Glyph.CHECK else Glyph.ALERT, if (ev.reported) Ui.p.green else Ui.p.amberInk, if (ev.reported) Ui.p.greenWash else Ui.p.amberWash),
+                    iconDisc(if (ok) Glyph.CHECK else Glyph.ALERT, if (ok) Ui.p.green else Ui.p.amberInk, if (ok) Ui.p.greenWash else Ui.p.amberWash),
                     act.lp(w = dp(30), h = dp(30), r = 10),
                 )
                 addView(
                     act.text(
-                        if (ev.reported) "Sent to the Ghost Tower map, so people nearby can be warned" else "Couldn't reach the Ghost Tower map. Check your connection.",
+                        when {
+                            warn -> "Your spot is inside the warning zone, so Ghost Tower warned you before the tower arrived"
+                            ev.reported -> "Sent to the Ghost Tower map, so people nearby can be warned"
+                            else -> "Couldn't reach the Ghost Tower map. Check your connection."
+                        },
                         13f, Ui.p.ink2,
                     ),
                     act.lp(w = 0, weight = 1f),

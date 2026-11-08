@@ -30,7 +30,20 @@ const EVENT = "#f08a24";
 /** The physical phone running the Android app (same magenta as the app). */
 const PHONE = "#e20074";
 /** Where the demo phone sits: the Android app's fixed demo spot, rounded the way its reports are. */
-const DEMO_PHONE: LatLon = [32.979, -96.782];
+const DEMO_PHONE: LatLon = [32.98, -96.768];
+/**
+ * Only a "phone" report from the demo spot counts as THE demo phone. The database has no device id, so a phone
+ * running an older build (older pin) or someone else's phone on the shared database would otherwise take over the
+ * marker: the ring at the real spot vanished and a dot appeared somewhere the demo phone never was. Those reports
+ * are drawn as ordinary scam-text dots instead.
+ */
+const DEMO_PHONE_RADIUS_M = 250;
+function isDemoPhone(e: { source: string; lat: number; lon: number }): boolean {
+  if (e.source !== "phone") return false;
+  const dy = (e.lat - DEMO_PHONE[0]) * 111_320;
+  const dx = (e.lon - DEMO_PHONE[1]) * 111_320 * Math.cos((DEMO_PHONE[0] * Math.PI) / 180);
+  return Math.hypot(dx, dy) <= DEMO_PHONE_RADIUS_M;
+}
 /** The physical phone's dot stays on the map this long (sim time), so you can watch the warning zone reach it. */
 const PHONE_HOLD_MS = 15 * 60_000;
 
@@ -150,7 +163,7 @@ export function AnalystMap() {
     const mine: typeof tables.anomaly_event = [];
     for (const e of tables.anomaly_event) {
       const age = clock - e.ts_ms;
-      if (e.source === "phone") { if (age <= PHONE_HOLD_MS) mine.push(e); continue; }
+      if (isDemoPhone(e)) { if (age <= PHONE_HOLD_MS) mine.push(e); continue; }
       if (age > EVENT_WINDOW_MS) continue;
       const fade = Math.max(0.1, 1 - age / EVENT_WINDOW_MS);
       L.circleMarker([e.lat, e.lon], {
@@ -168,7 +181,7 @@ export function AnalystMap() {
       L.circleMarker(DEMO_PHONE, {
         radius: 9, color: PHONE, weight: 3, dashArray: "3 4", fillColor: "#ffffff", fillOpacity: 0.85,
       })
-        .bindTooltip("Demo phone (Campbell Rd), waiting for a fake tower")
+        .bindTooltip("Demo phone (Coit Rd), waiting for a fake tower")
         .addTo(layer);
     }
     for (const e of mine) {

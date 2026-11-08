@@ -16,16 +16,17 @@ Reset the world, but **do not start the simulator yet**. It has no pause: you st
 - Full checklist: `TESTING.md` §6.
 
 ## Timeline at 3x
-Measured by replaying `demo-01` on the real Spacetime module, with the simulator started at 0:20. The real run varies by a few seconds. Rehearse it.
+First rows measured by replaying `demo-01` on the real Spacetime module; the warning and phone rows come from one live 3x run with the phone pinned on Coit Rd (2,500 m along the route), with the simulator started at 0:20. The real run varies by several seconds, most of all the warning time (it depends on Nemotron). Rehearse it.
 
 | Demo clock | What happens | Why |
 |---|---|---|
 | 0:20 | Simulator started | cue |
 | ~0:24 | Track goes **active**; red diamond appears | active 12 s after the blaster starts |
-| ~0:49 | Phone fires | the active track comes within 500 m of the phone's pinned spot (87 s of simulator time) |
-| ~0:56 | Phone **buzzes** | about 7 s after it fires: the debug path waits 6 s, then scores and reports |
-| ~1:29 | Car turns north onto Coit Rd | 208 s of simulator time |
+| ~0:35 | First **warning** goes out; its zone covers the phone's spot | the agent's first alert; the phone is inside the zone, so it shows **"Fake tower heading your way"** (the phone checks the zone itself) |
+| ~1:28 | Car turns north onto Coit Rd | 205 s of simulator time |
 | ~1:40 to 1:55 | Route and intercept **re-plan** on the tablet | the track heading takes ~25 s of simulator time to swing; the agent waits for it to settle. Depends on Nemotron speed. |
+| ~1:41 | Phone fires | the active track comes within 300 m of the phone's pinned spot, about 65 s after the warning |
+| ~1:48 | Phone shows the **detection** alert | about 7 s after it fires: the debug path waits 6 s, then scores and reports. The map's hollow ring turns into the solid dot. |
 | ~2:40 | Blaster goes off air | 480 s of simulator time |
 
 The first agent log lines appear some seconds after the track goes active. Time this in rehearsal.
@@ -35,7 +36,7 @@ The first agent log lines appear some seconds after the track goes active. Time 
 |---|---|---|---|
 | 0:00 | Slide 1 | Role 3 | "Since August 3rd there is no major-carrier 2G network left in the US. Scammers built their own. A fake cell tower in a car trunk pulls phones onto 2G and texts them directly, so carrier spam filters never see the message. In Toronto it took months to catch one, disrupted 13 million connections, and cut people off from 911." *(Verify the Toronto figures against their source before using them.)* |
 | 0:20 | Analyst map | Role 1 | Start the simulator (command above). "Each orange dot is a simulated phone reporting that it dropped to 2G and then got a suspicious text. The red diamond is our estimate of where the fake tower is." Point at the diamond as it appears (~0:24). |
-| 0:45 | Phone | Role 3 | Hand the phone to a judge. It buzzes at ~0:56. "This is a real app with a real detection pipeline, but its inputs are simulated: it plays out a 2G drop and a sample scam text when the simulated car passes. It does not read anyone's texts. On a real network, this is the moment your phone tells us it was pulled onto a fake tower." |
+| 0:30 | Phone | Role 3 | Hand the phone to a judge. It buzzes at ~0:35 with the warning, then again at ~1:48 when the tower reaches it. "This is a real app with a real detection pipeline, but its inputs are simulated: it plays out a 2G drop and a sample scam text when the simulated car passes. It does not read anyone's texts. On a real network, this is the moment your phone tells us it was pulled onto a fake tower." |
 | 1:10 | Agent log | Role 2 | Narrate: campaign linked, domain age, route predicted, warning drafted and sent. "The model proposes, the database decides. The agent can't set confidence or status." |
 | 1:40 | Patrol tablet | Role 1 | Hand the tablet to a second judge. The car has turned (~1:29). "Watch the route and intercept point update." |
 | 2:20 | Slide 4 | each role | 15 s each on their own panel. |

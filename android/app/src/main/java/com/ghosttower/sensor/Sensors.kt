@@ -37,28 +37,28 @@ object Notifier {
         ctx.getSystemService(NotificationManager::class.java).cancel(1001)
     }
 
-    fun fakeTower(ctx: Context, eventId: Long) {
+    fun alert(ctx: Context, ev: ThreatEvent) {
         if (Build.VERSION.SDK_INT >= 33 &&
             ctx.checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
         ) return
         ensureChannel(ctx)
         // Tapping it opens the app and shows the same alert pop-up.
         val open = PendingIntent.getActivity(
-            ctx, eventId.toInt(),
+            ctx, ev.id.toInt(),
             Intent(ctx, MainActivity::class.java)
-                .putExtra(MainActivity.EXTRA_ALERT_ID, eventId)
+                .putExtra(MainActivity.EXTRA_ALERT_ID, ev.id)
                 .addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP),
             PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
         )
+        val warning = ev.kind == "warning"
+        val title = if (warning) ev.title else "Fake cell tower detected"
+        val text = if (warning) ev.detail
+        else "Your phone was just pulled onto a fake cell tower. The text you received is fake. Don't tap the link."
         val n = Notification.Builder(ctx, CH)
             .setSmallIcon(android.R.drawable.stat_sys_warning)
-            .setContentTitle("Fake cell tower detected")
-            .setContentText("Your phone was just pulled onto a fake cell tower. The text you received is fake. Don't tap the link.")
-            .setStyle(
-                Notification.BigTextStyle().bigText(
-                    "Your phone was just pulled onto a fake cell tower. The text you received is fake. Don't tap the link.",
-                ),
-            )
+            .setContentTitle(title)
+            .setContentText(text)
+            .setStyle(Notification.BigTextStyle().bigText(text))
             .setContentIntent(open)
             .setAutoCancel(true)
             .build()
@@ -115,12 +115,42 @@ class RadioInfo(ctx: Context) {
     }
 }
 
-/** The demo trigger: when a simulated blaster's active track comes near the pinned phone, fire the demo path once. */
-class DemoWatcher {
+/** Geometry helpers. Polygons are lists of (lat, lon). */
+object Geo {
+    /** Ray casting: is (lat, lon) inside the polygon? */
+    fun contains(lat: Double, lon: Double, poly: List<Pair<Double, Double>>): Boolean {
+        var inside = false
+        var j = poly.size - 1
+        for (i in poly.indices) {
+            val (yi, xi) = poly[i]
+            val (yj, xj) = poly[j]
+            if ((yi > lat) != (yj > lat) && lon < (xj - xi) * (lat - yi) / (yj - yi) + xi) inside = !inside
+            j = i
+        }
+        return inside
+    }
+}
+
+/**
+ * The demo watcher. Two jobs on one 2 s loop:
+ *  1. Warning: when the agent sends an alert whose zone covers the phone's pinned spot, warn the user ahead of
+ *     the tower ("a fake tower is heading your way"). The zone check runs here on the phone, so the phone's
+ *     location is never sent anywhere to be warned.
+ *  2. Detection: when a simulated blaster's active track comes near the pinned spot, play out the 2G drop and
+ *     scam text once (the detection alert, which is also reported to the map).
+ */
+class DemoWatcher(private val ctx: Context) {
     private val handler = Handler(Looper.getMainLooper())
     private val io = Executors.newSingleThreadExecutor()
     private var running = false
     private var fired = false
+
+    // Warning state: the highest alert id already looked at (-1 = not yet baselined), the tracks this phone has
+    // already been warned about (the agent sends two near-identical alerts per warning), and whether the alert
+    // table has ever been seen non-empty (so an empty table afterwards means the demo world was reset).
+    private var lastAlertId = -1L
+    private val warnedTracks = HashSet<Long>()
+    private var sawAlerts = false
 
     fun start() {
         if (running) return
@@ -148,6 +178,7 @@ class DemoWatcher {
                 }
                 if (!near) fired = false // re-arm after the car leaves
                 clearIfWorldReset()
+                checkWarnings()
             }
             handler.postDelayed(this, 2000)
         }
@@ -163,6 +194,48 @@ class DemoWatcher {
         if (Reporter.phoneReportCount() == 0) {
             Log.i("GhostTower", "demo world was reset; clearing the app's alerts")
             EventLog.clear()
+        }
+    }
+
+    private fun checkWarnings() {
+        val alerts = Reporter.alerts() ?: return
+        if (alerts.isEmpty()) {
+            if (sawAlerts) {
+                // The alert table was emptied: the demo world was reset (the sim restarted). Start over.
+                sawAlerts = false
+                warnedTracks.clear()
+                Log.i("GhostTower", "alert table emptied; clearing the app's alerts")
+                EventLog.clear()
+            }
+            if (lastAlertId < 0) lastAlertId = 0
+            return
+        }
+        sawAlerts = true
+        if (lastAlertId < 0) {
+            // First look: whatever is already there happened before this app was watching, so don't warn for it.
+            lastAlertId = alerts.maxOf { it.id }
+            return
+        }
+        val fresh = alerts.filter { it.id > lastAlertId }.sortedBy { it.id }
+        if (fresh.isEmpty()) return
+        lastAlertId = fresh.last().id
+        if (!Prefs.shieldOn) return
+        for (a in fresh) {
+            if (a.trackId in warnedTracks) continue
+            if (!Geo.contains(Demo.LAT, Demo.LON, a.zone)) continue
+            warnedTracks += a.trackId
+            Log.i(
+                "GhostTower",
+                "warning: alert ${a.id} covers this spot (sent_ms=${a.sentMs}, phone clock now=${System.currentTimeMillis()}, " +
+                    "${a.recipients} phones warned)",
+            )
+            // reported stays false on purpose: that flag means "this phone's report is in the database".
+            val ev = ThreatEvent(
+                EventLog.newId(), System.currentTimeMillis(), "warning", "Fake tower heading your way", a.message,
+                0f, "", "", "",
+            )
+            EventLog.add(ev)
+            Alerts.raise(ctx, ev)
         }
     }
 
@@ -182,7 +255,7 @@ class SensorService : Service() {
         Pipeline.init(this)
         startForeground(1002, Notifier.foreground(this))
         // The demo trigger is the only mode: there is no real 2G or SMS listener in this build.
-        if (demo == null) demo = DemoWatcher()
+        if (demo == null) demo = DemoWatcher(applicationContext)
         demo?.start()
         return START_STICKY
     }

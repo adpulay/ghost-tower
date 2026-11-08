@@ -45,7 +45,7 @@ object Prefs {
 }
 
 /**
- * One thing the app flagged. `kind` is "tower" (the phone was pulled onto a fake 2G cell) or "text" (a scam text
+ * One thing the app flagged. `kind` is "warning" (the agent's zone covers this phone, ahead of the tower), "tower" (the phone was pulled onto a fake 2G cell) or "text" (a scam text
  * arrived during it). In this demo build both come from the simulated trigger; `preview` is the sample text.
  */
 data class ThreatEvent(
@@ -166,7 +166,7 @@ object Alerts {
                 main.post { show(ev) }
                 Notifier.cancelAlert(ctx)
             }
-            Prefs.notifyOn -> Notifier.fakeTower(ctx, ev.id)
+            Prefs.notifyOn -> Notifier.alert(ctx, ev)
         }
     }
 }
