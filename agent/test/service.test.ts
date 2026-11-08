@@ -4,6 +4,9 @@ import { MockPolicy } from "../src/llm/mockPolicy.js";
 import { runScenario } from "../src/runScenario.js";
 import { SCENARIOS } from "../src/scenarios.js";
 
+// Scenario runs must be deterministic and offline: no calls to the public OSRM router.
+process.env.PREDICT_ROUTE_OFFLINE ??= "1";
+
 test("demo-01: investigates on active, replans after the Coit Rd turn, prediction updates", async () => {
   const run = await runScenario(SCENARIOS["demo-01"], new MockPolicy());
   const traces = run.world.traces;

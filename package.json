@@ -8,7 +8,7 @@
   "scripts": {
     "sim": "node sim/src/cli.ts",
     "eval": "node eval/src/run_eval.ts",
-    "test": "node --import ./spacetime/test/sys_stub.ts --test \"spacetime/test/*.test.ts\" \"sim/test/*.test.ts\" \"eval/test/*.test.ts\" \"web/src/patrol/*.test.ts\" && python3 -m unittest discover -s agent/tools/predict_route -p 'test_*.py'",
+    "test": "node --import ./spacetime/test/sys_stub.ts --test \"spacetime/test/*.test.ts\" \"sim/test/*.test.ts\" \"eval/test/*.test.ts\" \"web/src/patrol/*.test.ts\"",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "routes": "node sim/tools/build_routes.mjs"
   },

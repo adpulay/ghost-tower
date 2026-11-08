@@ -13,7 +13,7 @@ Per-role plans: `A.zip` (Role 1), `C.zip` (Role 2), `J/J.md` (Role 3).
 | `spacetime/bindings/` | Role 1 | TypeScript client bindings (same shape as `spacetime generate`). |
 | `sim/` | Role 1 | Seeded simulator: `scenarios/*.json` (10 from TESTING.md §1), `routes/*.json` (real OSM roads via OSRM). |
 | `eval/` | Role 1 | `run_eval.ts` → `results.md`: detection time, error, protected-before-hit, false alarms, ablation, load test. |
-| `agent/tools/predict_route/` | Role 1 | Route prediction. Python (OSRM + straight-line fallback). Role 2's agent currently calls a TypeScript stub in the same folder. |
+| `agent/tools/predict_route/` | Role 1 | Route prediction (OSRM road-following with a straight-line fallback), TypeScript, called by the agent. |
 | `web/src/patrol/` | Role 1 | Patrol tablet view, mounted at `/patrol`. |
 | `agent/` | Role 2 | Nemotron agent service and tools (`draft_report` is Role 3's, in TypeScript). |
 | `classifier/` | Role 2 | SMS scam classifier and `/score` endpoint (port 8001). |
@@ -31,7 +31,7 @@ npm install                                               # 1. deps (repo root: 
 spacetime publish --project-path spacetime ghost-tower    # 2. module (add -s maincloud for the shared instance)
 SPACETIME_DB=ghost-tower npm run sim -- run demo-01       # 3. drive the demo (add --speed 4x to go faster)
 npm run eval                                              # 4. metrics + ablation + load test -> eval/results.md
-npm test                                                  # 5. reducer, sim, eval, patrol and predict_route tests
+npm test                                                  # 5. reducer, sim, eval and patrol tests (Node >= 22.18; predict_route tests are in agent/)
 ```
 
 No server handy? `npm run sim -- run --local demo-01` runs the **real module in-process** on the SpacetimeDB SDK's test datastore. The eval and tests use the same path.
@@ -74,5 +74,5 @@ Every 3 s, `recluster` takes the last 120 s of events with fusion >= 0.3. It clu
 | Role 1 Spacetime module, simulator, eval | merged |
 | Role 1 patrol view mounted at `/patrol` | mounted and builds; live host only (not on the simulated feed); not yet run in a browser |
 | Web `liveSource.ts` wired to Spacetime | **todo**, can now use `spacetime/bindings` |
-| Agent uses Role 1's `predict_route` | **todo**, agent calls a TS stub; Role 1's is Python |
+| Agent uses Role 1's `predict_route` | done (ported to TypeScript; tested offline, live OSRM path untested) |
 | Android app compiled | **todo**, needs Android Studio |

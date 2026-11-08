@@ -11,6 +11,9 @@ import { urlHash, KNOWN_DOMAINS } from "../src/knownDomains.js";
 import { runScenario, type ScenarioRun } from "../src/runScenario.js";
 import { SCENARIOS } from "../src/scenarios.js";
 
+// Scripted scenarios are straight-line; keep the eval deterministic and off the public OSRM router.
+process.env.PREDICT_ROUTE_OFFLINE ??= "1";
+
 const here = dirname(fileURLToPath(import.meta.url));
 loadDotEnv(resolve(here, "../.env"));
 
