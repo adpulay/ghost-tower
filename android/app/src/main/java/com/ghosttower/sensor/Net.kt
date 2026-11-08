@@ -10,14 +10,22 @@ import java.net.URL
 import kotlin.math.roundToLong
 
 /**
- * Pinned demo location: on Campbell Rd ~300 m west of Coit Rd, on the demo-01 route just before
- * the blaster turns north. Demo mode fires when the simulated track comes within
- * TRIGGER_RADIUS_M, and debug/demo reports use this point so they land in the simulated
- * blaster's cluster (recluster joins events within 800 m). Also the fallback when no real fix.
+ * Pinned demo location: on Campbell Rd, 1,000 m along the demo-01 route (sim/routes/demo.json),
+ * well before the blaster turns north onto Coit Rd (~2,290 m). Demo mode fires when an active
+ * simulated track comes within TRIGGER_RADIUS_M, and debug/demo reports use this point so they
+ * land in the simulated blaster's cluster (recluster joins events within 800 m). Also the
+ * fallback when no real fix.
+ *
+ * Why here: replaying demo-01 on the real module (eval/src/local_run.ts) shows the track goes
+ * active 12 s after the blaster starts and trails the true car by ~224 m (median). With this pin
+ * demo mode fires at ~87 s of simulator time. At `sim run --speed 3x` that is a buzz about 0:57
+ * into pitch/DEMO_SCRIPT.md, before the turn (~1:29). The previous pin (32.9859, -96.7712) was
+ * on Coit Rd ~790 m north of Campbell, so it fired at ~247 s, after the turn.
+ * If you move it, redo that replay, and keep the pitch script's timeline in step.
  */
 object Demo {
-    const val LAT = 32.9859
-    const val LON = -96.7712
+    const val LAT = 32.97875
+    const val LON = -96.78156
     const val TRIGGER_RADIUS_M = 500.0
 }
 
