@@ -189,3 +189,14 @@ test("an empty final reply gets a readable evidence-only summary", async () => {
   await new Investigator(w, model, { now: () => NOW }).run(TRACK, "refresh");
   assert.equal(w.traces.at(-1)!.text, "Track #3: route predicted.");
 });
+
+test("a model that keeps calling tools after finishing is stopped with a clean summary", async () => {
+  const model = scripted([
+    ["predict_route"], ["agent_set_prediction"], ["get_track_context"], ["get_track_context"], ["get_track_context"],
+  ]);
+  const w = world();
+  const r = await new Investigator(w, model, { now: () => NOW }).run(TRACK, "refresh");
+  assert.ok(!r.aborted);
+  assert.ok(r.steps <= 4, `took ${r.steps} steps`);
+  assert.equal(w.traces.at(-1)!.text, "Track #3: route predicted.");
+});

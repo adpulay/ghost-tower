@@ -35,18 +35,74 @@ export class NemotronClient implements ChatModel {
     });
     if (!res.ok) throw new Error(`nemotron HTTP ${res.status}: ${(await res.text()).slice(0, 300)}`);
     const json = (await res.json()) as {
-      choices: { message: { content?: string | null; tool_calls?: ToolCall[] } }[];
+      choices: { message: { content?: string | null; reasoning?: string | null; reasoning_content?: string | null; tool_calls?: ToolCall[] } }[];
     };
     const msg = json.choices?.[0]?.message ?? {};
+    let toolCalls = msg.tool_calls ?? [];
+    if (!toolCalls.length) {
+      // With thinking off, vLLM's deepseek_r1 reasoning parser never sees </think>, so it files the
+      // whole reply (tool calls included) under `reasoning` and the tool parser never runs.
+      // Recover the qwen3_coder-format calls ourselves.
+      toolCalls = parseXmlToolCalls(`${msg.reasoning ?? msg.reasoning_content ?? ""}\n${msg.content ?? ""}`, tools);
+    }
+    let content = toolCalls.length && !msg.tool_calls?.length ? stripToolCallXml(msg.content ?? null) : msg.content ?? null;
+    // Same parser issue for the final summary: with thinking off, `reasoning` is the actual answer.
+    // With thinking on it's the model's private reasoning, so it's never shown.
+    if (!content && !toolCalls.length && process.env.NEMOTRON_THINKING === "0") {
+      content = stripToolCallXml(msg.reasoning ?? msg.reasoning_content ?? null);
+    }
     return {
-      content: stripThinking(msg.content ?? null),
-      tool_calls: (msg.tool_calls ?? []).map((tc, i) => ({
+      content: stripThinking(content),
+      tool_calls: toolCalls.map((tc, i) => ({
         id: tc.id || `call_${Date.now()}_${i}`,
         type: "function",
         function: { name: tc.function.name, arguments: tc.function.arguments || "{}" },
       })),
     };
   }
+}
+
+/**
+ * Parse qwen3_coder-style tool calls:
+ *   <tool_call><function=NAME><parameter=KEY>VALUE</parameter>…</function></tool_call>
+ * Parameters the tool schema declares as strings stay strings (a `zone_json` string must not become
+ * an array). Others are parsed as JSON when they can be (numbers, booleans, arrays, objects).
+ */
+export function parseXmlToolCalls(text: string, tools: unknown[] = []): ToolCall[] {
+  const calls: ToolCall[] = [];
+  const callRe = /<tool_call>\s*<function=([^>\s]+)>([\s\S]*?)<\/function>\s*<\/tool_call>/g;
+  const paramRe = /<parameter=([^>\s]+)>\n?([\s\S]*?)\n?<\/parameter>/g;
+  for (const m of text.matchAll(callRe)) {
+    const props = schemaProps(tools, m[1]);
+    const args: Record<string, unknown> = {};
+    for (const p of m[2].matchAll(paramRe)) {
+      const raw = p[2].trim();
+      if (props[p[1]]?.type === "string") {
+        args[p[1]] = raw;
+        continue;
+      }
+      try {
+        args[p[1]] = JSON.parse(raw);
+      } catch {
+        args[p[1]] = raw;
+      }
+    }
+    calls.push({ id: "", type: "function", function: { name: m[1], arguments: JSON.stringify(args) } });
+  }
+  return calls;
+}
+
+/** The JSON-schema `properties` of one tool from an OpenAI `tools` array, or {} if not found. */
+function schemaProps(tools: unknown[], name: string): Record<string, { type?: string }> {
+  for (const t of tools as { function?: { name?: string; parameters?: { properties?: Record<string, { type?: string }> } } }[]) {
+    if (t?.function?.name === name) return t.function.parameters?.properties ?? {};
+  }
+  return {};
+}
+
+function stripToolCallXml(s: string | null): string | null {
+  if (!s) return s;
+  return s.replace(/<tool_call>[\s\S]*?<\/tool_call>/g, "").trim() || null;
 }
 
 /** Remove any <think>…</think> block that leaks into content if the reasoning parser is off. */

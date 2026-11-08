@@ -95,6 +95,7 @@ export class Investigator {
     const toolCtx: ToolContext = { world: this.world, trackId: track.id, now: this.now, memory, log: this.log };
     const tools = openAiTools();
     let nudges = 0;
+    let stepsSinceDone = 0;
 
     for (let step = 0; step < this.maxSteps; step++) {
       result.steps = step + 1;
@@ -166,6 +167,14 @@ export class Investigator {
           }
         }
         messages.push({ role: "tool", tool_call_id: call.id, name, content });
+      }
+      // Everything required is done, yet the model keeps calling tools (seen with thinking off):
+      // allow one more turn for its summary, then finish with an evidence-only line.
+      if (REQUIRED_TOOLS[mode].every((t) => result.toolsCalled.includes(t))) {
+        if (stepsSinceDone++ >= 1) {
+          await this.writeSummary(track.id, null, result);
+          return result;
+        }
       }
     }
 
