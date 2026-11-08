@@ -10,9 +10,15 @@ export const STALE_PREDICTION_MS = 20_000;
 /** Below this speed, heading is noise (parked / stop-and-go) and never triggers a replan. */
 export const MIN_TURN_SPEED_MPS = 2;
 const RETRY_AFTER_ERROR_MS = 10_000;
-/** Replan once the heading has settled (≤10° change per tick) or 8 s after the turn was first seen. */
+/**
+ * Replan once the heading has settled (stayed within 10° over the last 9 s, i.e. three recluster
+ * updates) or 25 s after the turn was first seen. recluster fits heading over a 90 s window, so a
+ * real 90° turn swings the track's heading over ~20–30 s; firing on the first quiet poll would
+ * re-predict mid-swing.
+ */
 export const TURN_SETTLE_DEG = 10;
-export const TURN_SETTLE_MAX_MS = 8_000;
+export const TURN_SETTLE_WINDOW_MS = 9_000;
+export const TURN_SETTLE_MAX_MS = 25_000;
 
 interface TrackState {
   lastStatus: string;
@@ -21,8 +27,10 @@ interface TrackState {
   running: Promise<RunResult> | null;
   predictionMs?: number;
   predictionHeading?: number;
+  predictionSpeed?: number;
   retryAfterMs?: number;
-  lastHeading?: number;
+  /** Recent headings (last TURN_SETTLE_WINDOW_MS) for the settle check. */
+  headings: { ms: number; deg: number }[];
   turnSeenMs?: number;
 }
 
@@ -88,13 +96,14 @@ export class AgentService {
   private async onTrack(track: Track): Promise<void> {
     let st = this.state.get(track.id);
     if (!st) {
-      st = { lastStatus: "", investigated: false, running: null };
+      st = { lastStatus: "", investigated: false, running: null, headings: [] };
       this.state.set(track.id, st);
     }
     const prevStatus = st.lastStatus;
     st.lastStatus = track.status;
-    const prevHeading = st.lastHeading;
-    st.lastHeading = track.heading_deg;
+    const tickMs = this.now();
+    st.headings.push({ ms: tickMs, deg: track.heading_deg });
+    st.headings = st.headings.filter((h) => tickMs - h.ms <= TURN_SETTLE_WINDOW_MS);
 
     if (track.status === "dormant") {
       if (prevStatus !== "dormant" && prevStatus !== "") {
@@ -114,15 +123,23 @@ export class AgentService {
       return;
     }
 
+    const moving = track.speed_mps >= MIN_TURN_SPEED_MPS;
+    // A prediction made while the track had no speed has no real direction: once it moves,
+    // refresh it rather than calling the first real heading a "turn".
+    if (moving && st.predictionSpeed !== undefined && st.predictionSpeed < MIN_TURN_SPEED_MPS) {
+      st.turnSeenMs = undefined;
+      this.launch(track, st, "refresh");
+      return;
+    }
     const turned =
       st.predictionHeading !== undefined &&
-      track.speed_mps >= MIN_TURN_SPEED_MPS &&
+      moving &&
       headingDelta(track.heading_deg, st.predictionHeading) > TURN_THRESHOLD_DEG;
     if (turned) {
       st.turnSeenMs ??= now;
-      const settled =
-        (prevHeading !== undefined && headingDelta(track.heading_deg, prevHeading) <= TURN_SETTLE_DEG) ||
-        now - st.turnSeenMs >= TURN_SETTLE_MAX_MS;
+      const windowFull = st.headings.length > 0 && now - st.headings[0]!.ms >= TURN_SETTLE_WINDOW_MS - 1_000;
+      const steady = st.headings.every((h) => headingDelta(track.heading_deg, h.deg) <= TURN_SETTLE_DEG);
+      const settled = (windowFull && steady) || now - st.turnSeenMs >= TURN_SETTLE_MAX_MS;
       if (!settled) return; // still mid-turn; don't predict along a diagonal
       st.turnSeenMs = undefined;
       const d = Math.round(headingDelta(track.heading_deg, st.predictionHeading!));
@@ -144,6 +161,7 @@ export class AgentService {
         if (r.predictionAtMs !== undefined) {
           st.predictionMs = r.predictionAtMs;
           st.predictionHeading = r.predictionHeading;
+          st.predictionSpeed = r.predictionSpeed;
         } else if (st.predictionMs === undefined) {
           // Never got a prediction: back off before the stale-refresh retries.
           st.predictionMs = this.now() - STALE_PREDICTION_MS + RETRY_AFTER_ERROR_MS;

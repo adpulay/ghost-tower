@@ -7,12 +7,12 @@ import type { World } from "./World.js";
  *   POST /v1/database/:db/sql            (body: SQL text)    -> reads
  *   POST /v1/database/:db/call/:reducer  (body: JSON array)  -> reducer calls
  *
- * This works before Role 1's generated TypeScript bindings exist. The service turns it into
- * a "subscription" by polling the `track` table every SPACETIME_POLL_MS (default 1 s).
- * Once bindings are generated, a WebSocket-SDK World can implement the same interface.
+ * No generated bindings needed. The service turns it into a "subscription" by polling the
+ * `track` table every SPACETIME_POLL_MS (default 1 s). A WebSocket-SDK World could implement
+ * the same interface later.
  *
- * Reducer argument order follows the field order in INTERFACES.md §2/§3. If Role 1's module
- * declares a different order, change it here only.
+ * Reducer argument order is the order the module declares (spacetime/src/index.ts), which is
+ * the field order in INTERFACES.md §2/§3. If the module changes, change it here only.
  */
 export class SpacetimeHttpWorld implements World {
   private token: string;

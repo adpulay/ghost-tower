@@ -1,6 +1,6 @@
 # Agent eval results (Role 2)
 
-- Generated: 2026-11-07T21:17:41.976Z
+- Generated: 2026-11-08T00:57:56.268Z
 - Model: `mock:policy` (NEMOTRON_PROVIDER=mock), 10 runs per scenario, max 8 steps, 20 s per model call
 - Harness: `npm run eval -- --runs 10` drives scripted track timelines (`src/scenarios.ts`) through the real `AgentService`, tools and reducers on an in-memory world.
 
@@ -9,7 +9,7 @@
 | Check | demo-01 | turns-01 | offon-01 | twin-01 |
 |---|---|---|---|---|
 | All required tools called (campaign, origin, route, warning) | 10/10 | 10/10 | 10/10 | 10/10 |
-| Re-planned after each turn (within 20 s) | 10/10 | 10/10 | n/a | 10/10 |
+| Re-planned after each turn (within 45 s) | 10/10 | 10/10 | n/a | 10/10 |
 | Never claimed to set confidence/status | 10/10 | 10/10 | 10/10 | 10/10 |
 | Seconds to first prediction (median) | 0.0 | 0.0 | 0.0 | 0.0 |
 | Linked the correct campaign per track | n/a | n/a | 10/10 | 10/10 |
