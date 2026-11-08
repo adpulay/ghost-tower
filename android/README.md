@@ -2,7 +2,12 @@
 
 Role 3. Watches the data network type, catches an SMS during a 2G window, scores it with Role 2's `/score`, calls `report_anomaly`, and notifies the user.
 
-**Status:** source written but **not yet compiled or run** (no Android SDK on the authoring machine). Open `android/` in Android Studio, let it sync, and fix whatever the first build reports.
+**Status:** compiles and builds a debug APK (`./gradlew assembleDebug`). Not yet run on an emulator or phone.
+
+**Build notes**
+- The wrapper is pinned to Gradle 9.6.0. Android Studio's bundled JDK is 25, which Gradle 8.x cannot run on, so do not downgrade it.
+- From a terminal, point Gradle at Studio's JDK: `JAVA_HOME="C:/Program Files/Android/Android Studio/jbr"`, then `./gradlew assembleDebug` (PowerShell: `.\gradlew.bat assembleDebug`). The APK is `app/build/outputs/apk/debug/app-debug.apk`.
+- Expected noise: a "Daemon compilation failed" message (Kotlin 1.9.24 daemon on JDK 25; it falls back and still compiles) and one deprecation warning for `PhoneStateListener` (used only on API < 31).
 
 ## Run
 1. Android Studio → Open `android/` → start an emulator (API 31+ recommended).
