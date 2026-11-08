@@ -11,14 +11,17 @@ Role 3. Watches the data network type, catches an SMS during a 2G window, scores
 
 ## Run
 1. Android Studio → Open `android/` → start an emulator (API 31+ recommended).
-2. Defaults assume the emulator reaches the host at `10.0.2.2`. For a real phone:
-   `./gradlew installDebug -PspacetimeUri=http://<laptop-ip>:3000 -PscoreUrl=http://<brev-host>:8001/score`
+2. Reports go to the shared Maincloud database `ghost-tower-94144` by default (same world as the
+   simulator). Point `/score` at a classifier the phone can reach:
+   `./gradlew installDebug -PscoreUrl=http://<brev-host>:8001/score`
+   Local fallback: add `-PspacetimeUri=http://<laptop-ip>:3000 -PspacetimeDb=ghost-tower`
+   (the emulator reaches the host at `10.0.2.2`).
 3. Open the app, accept the opt-in, grant permissions.
 
 ## Test 2G without breaking the law (emulator only, nothing is transmitted)
 Use the emulator's **Extended controls** (the `...` button on the emulator toolbar):
 1. **Cellular → Network type:** pick `EDGE` (or `GPRS`/`GSM`). The app's home screen should change to "EDGE (2G)".
-2. **Phone → Send message:** enter any sender number and the scam text, e.g. `TxTag: toll overdue, pay at https://txtag-pay-now.example/pay`.
+2. **Phone → Send message:** enter any sender number and the scam text, e.g. `TxTag: toll overdue, pay at https://txtag-pay-demo.example/pay`.
 3. **Cellular → Network type:** back to `LTE`.
 
 The console equivalent for step 2 is `adb emu sms send 5551234 "<text>"`. If the app never sees the network type change in step 1 on your emulator image, say so; the hidden debug trigger exercises the same code path.

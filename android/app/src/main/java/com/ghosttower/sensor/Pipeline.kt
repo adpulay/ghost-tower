@@ -132,7 +132,7 @@ object Pipeline {
         onNetworkType(TelephonyManager.NETWORK_TYPE_EDGE, now)
         main.postDelayed({
             onSms(
-                "TxTag: Your toll balance is overdue. Pay now to avoid a fine: https://txtag-pay-now.example/pay",
+                "TxTag: Your toll balance is overdue. Pay now to avoid a fine: https://txtag-pay-demo.example/pay",
                 fallbackScore = 0.97f, // only used if /score is unreachable
             )
             main.postDelayed({ onNetworkType(TelephonyManager.NETWORK_TYPE_LTE) }, 1500)

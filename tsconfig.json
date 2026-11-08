@@ -25,6 +25,8 @@
     "web/src/patrol/patrolModel.test.ts",
     "web/src/spacetime/liveCore.ts",
     "web/src/spacetime/liveCore.test.ts",
-    "web/src/spacetime/types.ts"
+    "web/src/spacetime/types.ts",
+    "web/src/spacetime/focusTrack.ts",
+    "web/src/spacetime/focusTrack.test.ts"
   ]
 }

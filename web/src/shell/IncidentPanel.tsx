@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { compass, formatEta } from "../patrol/patrolModel";
+import { focusCampaign, focusTrack } from "../spacetime/focusTrack";
 import { useTables } from "../spacetime/SpacetimeContext";
 
 const EVENT_WINDOW_MS = 120_000; // matches the recluster window
@@ -13,11 +14,13 @@ function useNow(ms = 1000) {
   return now;
 }
 
-/** The track the console is following: newest live one, else the newest of any status. */
+/**
+ * The track the console follows: the active one (then most confident), not the newest. With live
+ * data, benign noise keeps creating low-confidence candidates. See spacetime/focusTrack.ts.
+ */
 export function useFocusTrack() {
   const { tables } = useTables();
-  const live = tables.track.filter((t) => t.status === "active" || t.status === "candidate");
-  return live[live.length - 1] ?? tables.track[tables.track.length - 1];
+  return focusTrack(tables.track);
 }
 
 export function IncidentPanel() {
@@ -41,7 +44,8 @@ export function IncidentPanel() {
     );
   }
 
-  const campaign = tables.campaign.find((c) => c.id === track.campaign_id) ?? tables.campaign[tables.campaign.length - 1];
+  // Only the campaign linked to this track; falling back to the newest campaign would show the wrong brand.
+  const campaign = focusCampaign(track, tables.campaign);
   const prediction = tables.prediction.find((p) => p.track_id === track.id);
   const eta = prediction ? Math.max(0, Math.round(prediction.eta_s - (now - prediction.updated_ms) / 1000)) : undefined;
   const kmh = Math.round(track.speed_mps * 3.6);
