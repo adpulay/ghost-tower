@@ -1,4 +1,6 @@
 import { Route, Routes } from "react-router-dom";
+import { useAuth } from "./auth/AuthContext";
+import { LoginScreen } from "./auth/LoginScreen";
 import { AnalystMap } from "./map/AnalystMap";
 import { ActivityFeed } from "./shell/ActivityFeed";
 import { IncidentPanel } from "./shell/IncidentPanel";
@@ -6,6 +8,9 @@ import { PatrolSlot } from "./shell/Slots";
 import { TopBar } from "./shell/TopBar";
 
 export default function App() {
+  const { authed } = useAuth();
+  if (!authed) return <LoginScreen />;
+
   return (
     <Routes>
       <Route
