@@ -65,8 +65,8 @@ export interface SpacetimeConfig {
 
 export function spacetimeConfig(env = process.env): SpacetimeConfig {
   return {
-    host: env.SPACETIME_HOST ?? "http://localhost:3000",
-    database: env.SPACETIME_DB ?? "ghost-tower",
+    host: env.SPACETIME_HOST ?? "https://maincloud.spacetimedb.com",
+    database: env.SPACETIME_DB ?? "ghost-tower-94144",
     token: env.SPACETIME_TOKEN ?? "",
     pollMs: Number(env.SPACETIME_POLL_MS ?? 1000),
   };

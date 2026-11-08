@@ -21,7 +21,9 @@ export const REQUIRED_TOOLS: Record<string, string[]> = Object.fromEntries(
     ["rdap_domain_age", "agent_link_campaign", "carrier_smsc_lookup", "predict_route", "agent_set_prediction", "draft_report", "send_warning", "agent_record_alert"],
   ]),
 );
-const REPLAN_WINDOW_S = 20;
+// The track heading swings over ~25 s after a real turn (recluster fits a 90 s window), then the
+// agent waits for it to settle. 45 s covers both.
+const REPLAN_WINDOW_S = 45;
 
 export interface RunScore {
   requiredTools: boolean;

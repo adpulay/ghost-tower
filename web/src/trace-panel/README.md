@@ -18,7 +18,7 @@ No shared hook yet? Use the HTTP polling fallback:
 ```tsx
 import { TracePanel, usePolledTraceData } from "./trace-panel";
 
-const { track, traces } = usePolledTraceData(selectedTrackId, { host: SPACETIME_HOST, database: "ghost-tower" });
+const { track, traces } = usePolledTraceData(selectedTrackId, { host: SPACETIME_HOST, database: "ghost-tower-94144" });
 <TracePanel track={track} traces={traces} />
 ```
 

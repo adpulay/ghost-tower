@@ -30,6 +30,8 @@ export interface RunResult {
   predictionAtMs?: number;
   /** Track heading at the time of the prediction, for turn detection. */
   predictionHeading?: number;
+  /** Track speed when the prediction was made; below MIN_TURN_SPEED_MPS its heading means nothing. */
+  predictionSpeed?: number;
   errors: string[];
   aborted?: "step_cap" | "model_error";
 }
@@ -122,6 +124,7 @@ export class Investigator {
             if (name === "agent_set_prediction") {
               result.predictionAtMs = this.now();
               result.predictionHeading = track.heading_deg;
+              result.predictionSpeed = track.speed_mps;
             }
           } catch (e) {
             const msg = errMsg(e);
