@@ -8,12 +8,11 @@
   --patrol-bar: #ffffff;
   --patrol-eta: #101317;
   --patrol-route: #1257c7;
-  --patrol-carrier: #e20074;
   --patrol-hostile: #d42a3a;
   position: fixed;
   inset: 0;
   display: grid;
-  grid-template-rows: auto 1fr auto;
+  grid-template-rows: auto auto 1fr auto;
   background: var(--patrol-bg);
   color: var(--patrol-fg);
   font: 500 20px/1.3 "Barlow", "Segoe UI", system-ui, sans-serif;
@@ -29,7 +28,7 @@
   color: var(--patrol-fg);
   font: 700 clamp(21px, 2.8vw, 30px)/1.2 "Barlow", "Segoe UI", sans-serif;
   letter-spacing: -.01em;
-  border-bottom: 4px solid var(--patrol-carrier);
+  border-bottom: 1px solid var(--patrol-rule);
 }
 .patrol-dot {
   flex: none;
