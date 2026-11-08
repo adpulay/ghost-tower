@@ -1,0 +1,52 @@
+{
+  "id": "stopgo-01",
+  "seed": "stopgo-01",
+  "description": "Stop-and-go on Campbell Rd with one 2-minute park",
+  "kind": "attack",
+  "phones": 300,
+  "area_bbox": [
+    32.965,
+    -96.795,
+    32.992,
+    -96.735
+  ],
+  "blasters": [
+    {
+      "route": "routes/campbell_long.json",
+      "speed_mps": 9,
+      "range_m": 500,
+      "on_air": [
+        [
+          0,
+          600
+        ]
+      ],
+      "brand": "TxTag",
+      "domain": "txtag-pay-demo.example",
+      "stops": [
+        {
+          "at_m": 700,
+          "dur_s": 25
+        },
+        {
+          "at_m": 1500,
+          "dur_s": 120
+        },
+        {
+          "at_m": 2600,
+          "dur_s": 20
+        },
+        {
+          "at_m": 3400,
+          "dur_s": 30
+        }
+      ]
+    }
+  ],
+  "benign": {
+    "handover_rate_per_phone_hr": 6,
+    "dropout_rate_per_phone_hr": 1,
+    "real_toll_texts": 5
+  },
+  "tick_ms": 1000
+}

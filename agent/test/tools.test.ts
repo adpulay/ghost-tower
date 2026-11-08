@@ -81,9 +81,10 @@ test("carrier_smsc_lookup (mock): campaign → no, benign toll → yes, unknown 
   assert.deepEqual(carrierSmscLookup({ url_hash: "deadbeef", ts_ms: NOW }), { match: "unknown" });
 });
 
-test("predict_route (stub) output shape: path, intercept, eta_s", async () => {
-  const out = await predictRoute({ lat: 32.9858, lon: -96.77, heading_deg: 90, speed_mps: 11, horizon_s: 300 });
-  assert.equal(out.path.length, 11);
+test("predict_route output shape: path, intercept, eta_s, source", async () => {
+  const out = await predictRoute({ lat: 32.9858, lon: -96.77, heading_deg: 90, speed_mps: 11, horizon_s: 300 }, { offline: true });
+  assert.equal(out.path.length, 21); // one point per 15 s, including now
+  assert.equal(out.source, "straight_line");
   assert.ok(out.path.every((p) => p.length === 2));
   assert.equal(out.intercept.length, 2);
   assert.ok(Number.isInteger(out.eta_s));

@@ -5,6 +5,8 @@ export interface PredictRouteOutput {
   path: LatLon[];
   intercept: LatLon;
   eta_s: number;
+  /** Whether the path follows roads (OSRM) or is the straight-line fallback. */
+  source?: "osrm" | "straight_line";
 }
 
 /** Per-investigation scratch memory so the model doesn't have to copy big arrays between tools. */

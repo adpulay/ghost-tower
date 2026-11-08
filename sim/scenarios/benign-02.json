@@ -1,0 +1,26 @@
+{
+  "id": "benign-02",
+  "seed": "benign-02",
+  "description": "A real TxTag reminder blast through the normal network (smsc_match=yes)",
+  "kind": "benign",
+  "phones": 300,
+  "area_bbox": [
+    32.972,
+    -96.795,
+    33.01,
+    -96.755
+  ],
+  "duration_s": 600,
+  "blasters": [],
+  "benign": {
+    "handover_rate_per_phone_hr": 6,
+    "dropout_rate_per_phone_hr": 1,
+    "real_toll_texts": 150,
+    "real_toll_window_s": [
+      60,
+      240
+    ],
+    "real_toll_domain": "txtag.org"
+  },
+  "tick_ms": 1000
+}

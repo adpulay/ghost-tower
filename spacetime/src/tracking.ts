@@ -1,396 +1,356 @@
-// Pure tracking math for the Ghost Tower module (INTERFACES.md §4–§5, A.md Phase 3).
-// No SpacetimeDB imports, so it can be unit-tested with plain Node. Deterministic: no clocks,
-// no randomness. `now` is always passed in (the reducer uses ctx.timestamp).
+// Recluster: the tracking math from A.md Phase 3 + INTERFACES.md §5.
+//
+// Pure and deterministic: given the recent events, the live tracks and a clock, it returns
+// the new track states and event->track assignments. The `recluster` reducer is a thin
+// wrapper that reads tables, calls this, and writes the diff back. No randomness, no I/O,
+// and iteration order is always by (ts, id) so the same input gives the same output.
 
-// ---- constants (change only together with INTERFACES.md) ----
-export const FUSION_W_RAT = 0.45;
-export const FUSION_W_SMS = 0.35;
-export const FUSION_W_SMSC = 0.2;
-export const RAT_DROP_MAX_SECS = 30;
-export const MIN_FUSION = 0.3;
+import { FUSION_MIN, type FusionWeights } from './fusion.ts';
+import { angleDiff, bearing, dist, enu, normDeg, offset, type LatLon } from './geo.ts';
 
-export const WINDOW_MS = 120_000; // events in the last 120 s count
-export const CLUSTER_RADIUS_M = 800;
-export const MATCH_RADIUS_M = 1_000;
-export const RECENCY_TAU_MS = 30_000;
-export const SMOOTH_CENTROID = 0.6; // new_pos = 0.6 * centroid + 0.4 * predicted
-export const VELOCITY_ALPHA = 0.4; // EMA on the fitted velocity, keeps heading from jittering (tuned on 12 seeded drives)
-export const MAX_SPEED_MPS = 40;
-export const MIN_HEADING_SPEED_MPS = 2; // below this, keep the previous heading (same cutoff the agent uses for turns)
-/**
- * Velocity is fitted through the events of the last 90 s. Until the events span ≥30 s the track
- * reports speed 0 (heading unknown) instead of a noisy guess from the first burst of phones.
- */
-export const VELOCITY_FIT_MS = 90_000;
-export const VELOCITY_FIT_MIN_EVENTS = 4;
-export const VELOCITY_FIT_MIN_SPAN_MS = 30_000;
-export const MAX_PREDICT_DT_S = 30;
-export const ACTIVE_MIN_EVENTS = 5;
-export const ACTIVE_MIN_CONFIDENCE = 0.8;
-export const DORMANT_AFTER_MS = 90_000;
-export const CLOSE_CANDIDATE_AFTER_MS = 90_000;
-/** A cluster whose newest event is older than this can't start a new track (stale trail of a moving blaster). */
-export const NEW_TRACK_MAX_AGE_MS = 30_000;
-/** Future-dated events (clock skew) beyond this are ignored. */
-export const MAX_FUTURE_MS = 5_000;
+export const P = {
+  /** look-back window for events (ms) */
+  windowMs: 120_000,
+  /** greedy cluster join radius (m) */
+  clusterRadiusM: 800,
+  /** cluster -> track match radius around the track's predicted position (m) */
+  matchRadiusM: 1000,
+  /** same-campaign live tracks closer than this are one blaster and get merged (m) */
+  dedupeRadiusM: 1000,
+  /** recency weight time constant (ms) */
+  recencyTauMs: 30_000,
+  /** position smoothing: new = a * centroid + (1 - a) * predicted */
+  smoothAlpha: 0.6,
+  maxSpeedMps: 40,
+  /** below this a track is treated as parked and keeps its last heading */
+  minHeadingSpeedMps: 1,
+  /** velocity is not re-estimated from position steps shorter than this */
+  minVelocityDtMs: 1500,
+  /** candidate -> active thresholds (§5) */
+  activeMinEvents: 5,
+  activeMinConfidence: 0.8,
+  /** active -> dormant after this long with no new events (§5) */
+  dormantAfterMs: 90_000,
+  /** a candidate that gets no events for this long is dropped */
+  candidateCloseMs: 120_000,
+  /** a dormant track that never comes back is closed after this long */
+  dormantCloseMs: 600_000,
+  /** how far ahead the prediction is allowed to extrapolate (ms) */
+  maxPredictDtMs: 30_000,
+};
 
-// ---- fusion (INTERFACES.md §4) ----
+export type TrackStatus = 'candidate' | 'active' | 'dormant' | 'closed';
 
-export function smscSignal(smsc: string): number {
-  if (smsc === "no") return 1;
-  if (smsc === "yes") return 0;
-  return 0.5;
-}
-
-export function fusionScore(ratDrop: boolean, ratDropSecs: number, smsScore: number, smscMatch: string): number {
-  const rat = ratDrop && ratDropSecs <= RAT_DROP_MAX_SECS ? 1 : 0;
-  return FUSION_W_RAT * rat + FUSION_W_SMS * clamp01(smsScore) + FUSION_W_SMSC * smscSignal(smscMatch);
-}
-
-/** Round to 3 decimals (~150 m), as INTERFACES.md §2 requires. */
-export function coarsen(deg: number): number {
-  return Math.round(deg * 1000) / 1000;
-}
-
-export function clamp01(x: number): number {
-  if (!Number.isFinite(x)) return 0;
-  return Math.min(1, Math.max(0, x));
-}
-
-// ---- geo ----
-
-const R_EARTH = 6_371_000;
-const M_PER_DEG_LAT = 111_320;
-const rad = (d: number) => (d * Math.PI) / 180;
-const deg = (r: number) => (r * 180) / Math.PI;
-
-export function haversineM(lat1: number, lon1: number, lat2: number, lon2: number): number {
-  const dLat = rad(lat2 - lat1);
-  const dLon = rad(lon2 - lon1);
-  const a = Math.sin(dLat / 2) ** 2 + Math.cos(rad(lat1)) * Math.cos(rad(lat2)) * Math.sin(dLon / 2) ** 2;
-  return 2 * R_EARTH * Math.asin(Math.min(1, Math.sqrt(a)));
-}
-
-/** Offset a point by north/east meters (local flat approximation, fine at city scale). */
-export function offset(lat: number, lon: number, northM: number, eastM: number): [number, number] {
-  return [lat + northM / M_PER_DEG_LAT, lon + eastM / (M_PER_DEG_LAT * Math.cos(rad(lat)))];
-}
-
-/** North/east meters from a to b. */
-export function enu(aLat: number, aLon: number, bLat: number, bLon: number): [number, number] {
-  return [(bLat - aLat) * M_PER_DEG_LAT, (bLon - aLon) * M_PER_DEG_LAT * Math.cos(rad((aLat + bLat) / 2))];
-}
-
-/** Heading 0 = north, clockwise, in [0, 360). */
-export function headingFromVelocity(velN: number, velE: number): number {
-  return (deg(Math.atan2(velE, velN)) + 360) % 360;
-}
-
-// ---- recluster ----
-
-export interface EventRow {
-  id: number;
+export interface EventIn {
+  id: bigint;
   ts_ms: number;
   lat: number;
   lon: number;
   fusion_score: number;
   url_hash: string;
   smsc_match: string;
-  track_id: number;
+  track_id: bigint;
 }
 
-export interface TrackRow {
-  id: number;
+export interface TrackIn {
+  id: bigint;
   lat: number;
   lon: number;
   heading_deg: number;
   speed_mps: number;
   confidence: number;
   event_count: number;
-  status: string;
-  campaign_id: number;
+  status: TrackStatus;
+  campaign_id: bigint;
   updated_ms: number;
-}
-
-/** Internal per-track state (private table `track_state`). */
-export interface TrackState {
-  track_id: number;
-  last_event_ms: number;
-  vel_n: number;
-  vel_e: number;
+  /** url_hash of the track's newest event (looked up by the reducer) */
   url_hash: string;
+  /** ts of the track's newest assigned event (looked up by the reducer) */
+  last_event_ms: number;
 }
 
-export interface TrackResult {
-  /** null = new track: the reducer inserts it and uses the assigned id. */
-  id: number | null;
-  track: Omit<TrackRow, "id">;
-  state: Omit<TrackState, "track_id">;
-  /** Event ids to assign to this track. */
-  eventIds: number[];
+export type TrackOut = Omit<TrackIn, 'url_hash' | 'last_event_ms'>;
+
+export interface ReclusterResult {
+  /** existing tracks whose row changed */
+  updated: TrackOut[];
+  /** brand-new tracks; `id` is a temporary negative key referenced by `assign` */
+  created: TrackOut[];
+  /** event id -> track id (existing id, or a negative temp key from `created`) */
+  assign: Map<bigint, bigint>;
 }
 
-export interface Cluster {
-  urlHash: string;
-  events: EventRow[];
-  sumLat: number;
-  sumLon: number;
+interface Cluster {
+  hash: string;
+  events: EventIn[];
+  /** running unweighted centroid, used only while greedily building the cluster */
+  cLat: number;
+  cLon: number;
 }
 
-const centroidOf = (c: Cluster): [number, number] => [c.sumLat / c.events.length, c.sumLon / c.events.length];
-const newest = (c: Cluster) => Math.max(...c.events.map((e) => e.ts_ms));
+interface ClusterStats {
+  centroid: LatLon;
+  count: number;
+  meanFusion: number;
+  anySmscNo: boolean;
+  newestMs: number;
+}
 
-/** Greedy clustering, newest event first, kept separate per url_hash. */
-export function clusterEvents(events: EventRow[]): Cluster[] {
-  const sorted = [...events].sort((a, b) => b.ts_ms - a.ts_ms || a.id - b.id);
+function byTsThenId(a: EventIn, b: EventIn): number {
+  return a.ts_ms - b.ts_ms || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0);
+}
+
+function byId(a: { id: bigint }, b: { id: bigint }): number {
+  return a.id < b.id ? -1 : a.id > b.id ? 1 : 0;
+}
+
+/** Step 1: greedy clustering, separated by url_hash (campaign). */
+export function cluster(events: EventIn[]): Cluster[] {
   const clusters: Cluster[] = [];
-  for (const e of sorted) {
+  for (const e of [...events].sort(byTsThenId)) {
     let best: Cluster | undefined;
     let bestD = Infinity;
     for (const c of clusters) {
-      if (c.urlHash !== e.url_hash) continue;
-      const [cl, co] = centroidOf(c);
-      const d = haversineM(cl, co, e.lat, e.lon);
-      if (d <= CLUSTER_RADIUS_M && d < bestD) {
+      if (c.hash !== e.url_hash) continue;
+      const d = dist({ lat: c.cLat, lon: c.cLon }, e);
+      if (d <= P.clusterRadiusM && d < bestD) {
         best = c;
         bestD = d;
       }
     }
     if (best) {
+      const n = best.events.length;
+      best.cLat = (best.cLat * n + e.lat) / (n + 1);
+      best.cLon = (best.cLon * n + e.lon) / (n + 1);
       best.events.push(e);
-      best.sumLat += e.lat;
-      best.sumLon += e.lon;
     } else {
-      clusters.push({ urlHash: e.url_hash, events: [e], sumLat: e.lat, sumLon: e.lon });
+      clusters.push({ hash: e.url_hash, events: [e], cLat: e.lat, cLon: e.lon });
     }
   }
   return clusters;
 }
 
-/** Fusion × recency weighted centroid, recency = exp(-(now - ts) / 30 s). */
-export function weightedCentroid(events: EventRow[], now: number): [number, number] {
-  let w = 0;
-  let lat = 0;
-  let lon = 0;
+/** Steps 3 + 5 inputs: recency-weighted centroid and confidence ingredients. */
+export function stats(events: EventIn[], nowMs: number): ClusterStats {
+  let wSum = 0, lat = 0, lon = 0, fSum = 0, newest = -Infinity, anyNo = false;
   for (const e of events) {
-    const wi = Math.max(1e-6, e.fusion_score) * Math.exp(-Math.max(0, now - e.ts_ms) / RECENCY_TAU_MS);
-    w += wi;
-    lat += wi * e.lat;
-    lon += wi * e.lon;
+    const w = e.fusion_score * Math.exp(-Math.max(0, nowMs - e.ts_ms) / P.recencyTauMs);
+    wSum += w;
+    lat += w * e.lat;
+    lon += w * e.lon;
+    fSum += e.fusion_score;
+    newest = Math.max(newest, e.ts_ms);
+    anyNo ||= e.smsc_match === 'no';
   }
-  return [lat / w, lon / w];
+  const n = events.length;
+  const centroid =
+    wSum > 0
+      ? { lat: lat / wSum, lon: lon / wSum }
+      : { lat: events.reduce((s, e) => s + e.lat, 0) / n, lon: events.reduce((s, e) => s + e.lon, 0) / n };
+  return { centroid, count: n, meanFusion: n ? fSum / n : 0, anySmscNo: anyNo, newestMs: newest };
 }
 
-/** c = min(1, n / 10) * mean(fusion), +0.1 if any smsc_match == "no", capped at 1. */
-export function confidenceOf(events: EventRow[]): number {
-  if (events.length === 0) return 0;
-  const mean = events.reduce((s, e) => s + e.fusion_score, 0) / events.length;
-  const bonus = events.some((e) => e.smsc_match === "no") ? 0.1 : 0;
-  return Math.min(1, Math.min(1, events.length / 10) * mean + bonus);
+export function confidence(s: Pick<ClusterStats, 'count' | 'meanFusion' | 'anySmscNo'>, w: FusionWeights): number {
+  if (s.count === 0) return 0;
+  const c = Math.min(1, s.count / 10) * s.meanFusion + (s.anySmscNo ? w.smsc_bonus : 0);
+  return Math.min(1, c);
 }
 
-/**
- * Recency-weighted least-squares fit of event position against time, in m/s (north, east).
- * Phones report in bursts as the blaster passes, so the trail of events is a better velocity
- * signal than the difference of two smoothed positions, which stalls between bursts.
- */
-export function fitVelocity(events: EventRow[], now: number): [number, number] | null {
-  const evs = events.filter((e) => now - e.ts_ms <= VELOCITY_FIT_MS);
-  if (evs.length < VELOCITY_FIT_MIN_EVENTS) return null;
-  const tMin = Math.min(...evs.map((e) => e.ts_ms));
-  const tMax = Math.max(...evs.map((e) => e.ts_ms));
-  if (tMax - tMin < VELOCITY_FIT_MIN_SPAN_MS) return null;
-  const o = evs[0]!;
-  let sw = 0, st = 0, stt = 0, sn = 0, se = 0, stn = 0, ste = 0;
-  for (const e of evs) {
-    const w = Math.exp(-Math.max(0, now - e.ts_ms) / RECENCY_TAU_MS);
-    const t = (e.ts_ms - tMin) / 1000;
-    const [n, ea] = enu(o.lat, o.lon, e.lat, e.lon);
-    sw += w; st += w * t; stt += w * t * t; sn += w * n; se += w * ea; stn += w * t * n; ste += w * t * ea;
-  }
-  const den = sw * stt - st * st;
-  if (den <= 1e-9) return null;
-  return [(sw * stn - st * sn) / den, (sw * ste - st * se) / den];
+/** Position the track would be at now if it kept its velocity. */
+export function predicted(t: TrackIn | TrackOut, nowMs: number): LatLon {
+  const dtS = Math.min(P.maxPredictDtMs, Math.max(0, nowMs - t.updated_ms)) / 1000;
+  const h = (t.heading_deg * Math.PI) / 180;
+  return offset(t, Math.sin(h) * t.speed_mps * dtS, Math.cos(h) * t.speed_mps * dtS);
 }
 
-export function predictedPosition(t: TrackRow, st: TrackState | undefined, now: number): [number, number] {
-  if (!st) return [t.lat, t.lon];
-  const dt = Math.min(MAX_PREDICT_DT_S, Math.max(0, (now - t.updated_ms) / 1000));
-  return offset(t.lat, t.lon, st.vel_n * dt, st.vel_e * dt);
-}
-
-/**
- * One recluster pass. Returns only the tracks that need writing.
- * `events` may contain anything; window and fusion filtering happen here.
- */
 export function recluster(
-  now: number,
-  events: EventRow[],
-  tracks: TrackRow[],
-  states: Map<number, TrackState>,
-): TrackResult[] {
-  const recent = events.filter(
-    (e) => e.fusion_score >= MIN_FUSION && now - e.ts_ms <= WINDOW_MS && e.ts_ms - now <= MAX_FUTURE_MS,
-  );
-  const clusters = clusterEvents(recent).sort((a, b) => b.events.length - a.events.length || newest(b) - newest(a));
+  allRecent: EventIn[],
+  tracksIn: TrackIn[],
+  nowMs: number,
+  w: FusionWeights,
+): ReclusterResult {
+  const events = allRecent.filter(e => nowMs - e.ts_ms <= P.windowMs && e.fusion_score >= FUSION_MIN);
+  const tracks = tracksIn.filter(t => t.status !== 'closed').sort(byId);
+  const meta = new Map(tracks.map(t => [t.id, { hash: t.url_hash, last: t.last_event_ms }]));
+  const clusters = cluster(events);
 
-  const live = tracks.filter((t) => t.status !== "closed").sort((a, b) => a.id - b.id);
-  const matched = new Map<number, { events: EventRow[]; reactivated: boolean }>();
-  const fresh: EventRow[][] = [];
-
+  // Step 2: match each cluster to a live (candidate/active) track of the same campaign.
+  // Continuity first: a cluster holding events that were already assigned to a track last
+  // pass belongs to that track. Otherwise, the nearest track whose predicted position is
+  // within 1 km of the cluster (measured to the cluster's closest event, so the leading
+  // edge of a long 120 s trail still attaches to its own track instead of spawning a twin).
+  // Several clusters may feed one track; their events are merged.
+  const live = tracks.filter(t => t.status === 'candidate' || t.status === 'active');
+  const liveIds = new Set(live.map(t => t.id));
+  const feeds = new Map<bigint, EventIn[]>();
+  const unmatched: Cluster[] = [];
   for (const c of clusters) {
-    const [cLat, cLon] = weightedCentroid(c.events, now);
-
-    // 1) a candidate/active track of the same campaign near its predicted position
-    let best: TrackRow | undefined;
-    let bestD = Infinity;
-    for (const t of live) {
-      if (t.status === "dormant") continue;
-      const st = states.get(t.id);
-      if ((st?.url_hash ?? "") !== c.urlHash) continue;
-      const [pLat, pLon] = predictedPosition(t, st, now);
-      const d = haversineM(pLat, pLon, cLat, cLon);
-      if (d < MATCH_RADIUS_M && d < bestD) {
-        best = t;
-        bestD = d;
-      }
+    let best: TrackIn | undefined;
+    const shared = new Map<bigint, number>();
+    for (const e of c.events) if (liveIds.has(e.track_id)) shared.set(e.track_id, (shared.get(e.track_id) ?? 0) + 1);
+    if (shared.size) {
+      const [id] = [...shared].sort((a, b) => b[1] - a[1] || (a[0] < b[0] ? -1 : 1))[0];
+      best = live.find(t => t.id === id && meta.get(t.id)!.hash === c.hash);
     }
-
-    // 2) dormant → active: same url_hash anywhere, or nearby when there is no link at all
     if (!best) {
-      let bestMs = -Infinity;
+      let bestD = Infinity;
       for (const t of live) {
-        if (t.status !== "dormant") continue;
-        const st = states.get(t.id);
-        const h = st?.url_hash ?? "";
-        if (h !== c.urlHash) continue;
-        if (h === "" && haversineM(t.lat, t.lon, cLat, cLon) >= MATCH_RADIUS_M) continue;
-        const ms = st?.last_event_ms ?? 0;
-        if (newest(c) <= ms) continue; // only events from before it went dormant
-        if (ms > bestMs) {
+        if (meta.get(t.id)!.hash !== c.hash) continue;
+        const pred = predicted(t, nowMs);
+        const d = Math.min(...c.events.map(e => dist(pred, e)));
+        if (d < P.matchRadiusM && d < bestD) {
           best = t;
-          bestMs = ms;
+          bestD = d;
         }
       }
     }
+    if (best) feeds.set(best.id, [...(feeds.get(best.id) ?? []), ...c.events]);
+    else unmatched.push(c);
+  }
 
-    if (best) {
-      const m = matched.get(best.id);
-      if (m) m.events.push(...c.events); // the trail of a moving blaster can split into clusters
-      else matched.set(best.id, { events: [...c.events], reactivated: best.status === "dormant" });
+  // Unmatched clusters: a same-campaign dormant track with genuinely new events comes back
+  // (§5: dormant -> active on same url_hash). Stale leftovers of a dormant track are left
+  // alone. Anything else seeds a new candidate track.
+  const revived = new Set<bigint>();
+  const created: TrackOut[] = [];
+  const createdFeeds = new Map<bigint, EventIn[]>();
+  let tmp = -1n;
+  for (const c of unmatched) {
+    const s = stats(c.events, nowMs);
+    const dormant = tracks
+      .filter(t => t.status === 'dormant' && meta.get(t.id)!.hash === c.hash)
+      // an empty hash is "no campaign", so only revive those by proximity
+      .filter(t => c.hash !== '' || dist(t, s.centroid) < P.matchRadiusM)
+      .sort((a, b) => b.updated_ms - a.updated_ms || byId(a, b));
+    if (dormant.length) {
+      const d = dormant[0];
+      if (s.newestMs > meta.get(d.id)!.last) {
+        feeds.set(d.id, [...(feeds.get(d.id) ?? []), ...c.events]);
+        revived.add(d.id);
+      }
       continue;
     }
-
-    // 3) new track, but only from a cluster with recent activity
-    if (now - newest(c) <= NEW_TRACK_MAX_AGE_MS) fresh.push(c.events);
+    const id = tmp--;
+    created.push({
+      id, lat: s.centroid.lat, lon: s.centroid.lon, heading_deg: 0, speed_mps: 0,
+      confidence: 0, event_count: 0, status: 'candidate', campaign_id: 0n, updated_ms: nowMs,
+    });
+    createdFeeds.set(id, c.events);
+    meta.set(id, { hash: c.hash, last: s.newestMs });
   }
 
-  const out: TrackResult[] = [];
+  const assign = new Map<bigint, bigint>();
+  const out = new Map<bigint, TrackOut>();
 
-  for (const t of live) {
-    const st = states.get(t.id);
-    const m = matched.get(t.id);
-    if (m) {
-      out.push(updateMatched(now, t, st, m.events, m.reactivated));
-      continue;
+  // Steps 3-6 for every non-closed track.
+  for (const t of tracks) {
+    const fed = feeds.get(t.id);
+    let next: TrackOut = {
+      id: t.id, lat: t.lat, lon: t.lon, heading_deg: t.heading_deg, speed_mps: t.speed_mps,
+      confidence: t.confidence, event_count: t.event_count, status: t.status,
+      campaign_id: t.campaign_id, updated_ms: t.updated_ms,
+    };
+    let lastEvent = meta.get(t.id)!.last;
+    if (fed && fed.length) {
+      for (const e of fed) assign.set(e.id, t.id);
+      const s = stats(fed, nowMs);
+      lastEvent = Math.max(lastEvent, s.newestMs);
+      if (revived.has(t.id)) {
+        // It reappeared somewhere else (e.g. 2 km down the road): jump, reset velocity.
+        next = { ...next, lat: s.centroid.lat, lon: s.centroid.lon, speed_mps: 0, status: 'active', updated_ms: nowMs };
+      } else {
+        next = { ...next, ...smoothAndVelocity(t, s.centroid, nowMs) };
+      }
+      next.confidence = confidence(s, w);
+      next.event_count = s.count;
+    } else {
+      next.event_count = 0;
+      next.confidence = 0;
     }
-    const lastEvent = st?.last_event_ms ?? t.updated_ms;
-    const idle = now - lastEvent;
-    let status = t.status;
-    if (t.status === "active" && idle > DORMANT_AFTER_MS) status = "dormant";
-    if (t.status === "candidate" && idle > CLOSE_CANDIDATE_AFTER_MS) status = "closed";
-    const count = recent.filter((e) => e.track_id === t.id).length;
-    if (status !== t.status || count !== t.event_count) {
-      const { id: _id, ...row } = t;
-      out.push({
-        id: t.id,
-        track: { ...row, status, event_count: count, speed_mps: status === "active" || status === "candidate" ? t.speed_mps : 0 },
-        state: st
-          ? { last_event_ms: st.last_event_ms, vel_n: st.vel_n, vel_e: st.vel_e, url_hash: st.url_hash }
-          : { last_event_ms: lastEvent, vel_n: 0, vel_e: 0, url_hash: "" },
-        eventIds: [],
-      });
+    next.status = transition(next, lastEvent, nowMs);
+    out.set(t.id, next);
+  }
+  for (const c of created) {
+    const fed = createdFeeds.get(c.id)!;
+    for (const e of fed) assign.set(e.id, c.id);
+    const s = stats(fed, nowMs);
+    c.confidence = confidence(s, w);
+    c.event_count = s.count;
+    c.status = transition(c, s.newestMs, nowMs);
+  }
+
+  dedupe([...out.values(), ...created], meta, assign);
+
+  const updated = [...out.values()].filter(n => {
+    const o = tracks.find(t => t.id === n.id)!;
+    return (
+      o.lat !== n.lat || o.lon !== n.lon || o.heading_deg !== n.heading_deg || o.speed_mps !== n.speed_mps ||
+      o.confidence !== n.confidence || o.event_count !== n.event_count || o.status !== n.status ||
+      o.updated_ms !== n.updated_ms
+    );
+  });
+  return { updated, created: created.filter(c => c.status !== 'closed'), assign };
+}
+
+/** Steps 3-4: smoothing and velocity from the last two smoothed positions. */
+function smoothAndVelocity(t: TrackIn, centroid: LatLon, nowMs: number): Partial<TrackOut> {
+  const pred = predicted(t, nowMs);
+  const a = P.smoothAlpha;
+  const pos = { lat: a * centroid.lat + (1 - a) * pred.lat, lon: a * centroid.lon + (1 - a) * pred.lon };
+  const dtMs = nowMs - t.updated_ms;
+  if (dtMs < P.minVelocityDtMs) return { lat: pos.lat, lon: pos.lon, updated_ms: t.updated_ms };
+  const { e, n } = enu(t, pos);
+  const vE = e / (dtMs / 1000);
+  const vN = n / (dtMs / 1000);
+  const speed = Math.min(P.maxSpeedMps, Math.hypot(vE, vN));
+  const heading = speed >= P.minHeadingSpeedMps ? normDeg((Math.atan2(vE, vN) * 180) / Math.PI) : t.heading_deg;
+  return { lat: pos.lat, lon: pos.lon, speed_mps: speed, heading_deg: heading, updated_ms: nowMs };
+}
+
+/** Step 6: status machine (§5). */
+function transition(t: TrackOut, lastEventMs: number, nowMs: number): TrackStatus {
+  const quiet = nowMs - lastEventMs;
+  switch (t.status) {
+    case 'candidate':
+      if (quiet > P.candidateCloseMs) return 'closed';
+      return t.event_count >= P.activeMinEvents && t.confidence >= P.activeMinConfidence ? 'active' : 'candidate';
+    case 'active':
+      return quiet > P.dormantAfterMs ? 'dormant' : 'active';
+    case 'dormant':
+      return quiet > P.dormantCloseMs ? 'closed' : 'dormant';
+    default:
+      return t.status;
+  }
+}
+
+/**
+ * Two live tracks of the same campaign sitting on top of each other are one blaster that got
+ * split (e.g. a cluster briefly fell outside the match radius). Keep the older track, move
+ * the younger one's events to it, and close the younger.
+ */
+function dedupe(all: TrackOut[], meta: Map<bigint, { hash: string }>, assign: Map<bigint, bigint>) {
+  const rank = (t: TrackOut) => (t.status === 'active' ? 0 : 1);
+  // Age order: existing tracks by ascending id, then new ones (temp ids -1, -2, ...).
+  const age = (t: TrackOut) => (t.id > 0n ? t.id : (1n << 62n) - t.id);
+  const live = all
+    .filter(t => t.status === 'active' || t.status === 'candidate')
+    .sort((a, b) => rank(a) - rank(b) || (age(a) < age(b) ? -1 : age(a) > age(b) ? 1 : 0));
+  for (let i = 0; i < live.length; i++) {
+    const keep = live[i];
+    if (keep.status === 'closed') continue;
+    for (let j = i + 1; j < live.length; j++) {
+      const drop = live[j];
+      if (drop.status === 'closed') continue;
+      if (meta.get(keep.id)!.hash !== meta.get(drop.id)!.hash) continue;
+      if (dist(keep, drop) > P.dedupeRadiusM) continue;
+      for (const [ev, tid] of assign) if (tid === drop.id) assign.set(ev, keep.id);
+      keep.event_count += drop.event_count;
+      keep.confidence = Math.max(keep.confidence, drop.confidence);
+      drop.status = 'closed';
+      drop.event_count = 0;
     }
   }
-
-  for (const evs of fresh) out.push(newTrack(now, evs));
-  return out;
 }
 
-function updateMatched(
-  now: number,
-  t: TrackRow,
-  st: TrackState | undefined,
-  evs: EventRow[],
-  reactivated: boolean,
-): TrackResult {
-  const [cLat, cLon] = weightedCentroid(evs, now);
-  let lat = cLat;
-  let lon = cLon;
-  let velN = 0;
-  let velE = 0;
-  if (!reactivated && st) {
-    const [pLat, pLon] = predictedPosition(t, st, now);
-    lat = SMOOTH_CENTROID * cLat + (1 - SMOOTH_CENTROID) * pLat;
-    lon = SMOOTH_CENTROID * cLon + (1 - SMOOTH_CENTROID) * pLon;
-    // No fit yet (too few events, or too short a span): keep the previous velocity (0 for a new track).
-    const inst = fitVelocity(evs, now);
-    [velN, velE] = inst
-      ? [VELOCITY_ALPHA * inst[0] + (1 - VELOCITY_ALPHA) * st.vel_n, VELOCITY_ALPHA * inst[1] + (1 - VELOCITY_ALPHA) * st.vel_e]
-      : [st.vel_n, st.vel_e];
-  }
-  let speed = Math.hypot(velN, velE);
-  if (speed > MAX_SPEED_MPS) {
-    velN *= MAX_SPEED_MPS / speed;
-    velE *= MAX_SPEED_MPS / speed;
-    speed = MAX_SPEED_MPS;
-  }
-  const heading = speed >= MIN_HEADING_SPEED_MPS ? headingFromVelocity(velN, velE) : t.heading_deg;
-  const confidence = confidenceOf(evs);
-  const meetsActive = evs.length >= ACTIVE_MIN_EVENTS && confidence >= ACTIVE_MIN_CONFIDENCE;
-  const lastEvent = Math.max(...evs.map((e) => e.ts_ms));
-  let status = t.status;
-  if (reactivated || (t.status === "candidate" && meetsActive)) status = "active";
-  // Old events can still be inside the 120 s window after the blaster goes quiet.
-  if (status === "active" && now - lastEvent > DORMANT_AFTER_MS) status = "dormant";
-  if (status === "candidate" && now - lastEvent > CLOSE_CANDIDATE_AFTER_MS) status = "closed";
-  if (status !== "active") [velN, velE, speed] = [0, 0, 0];
-  return {
-    id: t.id,
-    track: {
-      lat,
-      lon,
-      heading_deg: heading,
-      speed_mps: speed,
-      confidence,
-      event_count: evs.length,
-      status,
-      campaign_id: t.campaign_id,
-      updated_ms: now,
-    },
-    state: { last_event_ms: lastEvent, vel_n: velN, vel_e: velE, url_hash: evs[0]!.url_hash },
-    eventIds: evs.map((e) => e.id).sort((a, b) => a - b),
-  };
-}
-
-function newTrack(now: number, evs: EventRow[]): TrackResult {
-  const [lat, lon] = weightedCentroid(evs, now);
-  const confidence = confidenceOf(evs);
-  const meetsActive = evs.length >= ACTIVE_MIN_EVENTS && confidence >= ACTIVE_MIN_CONFIDENCE;
-  return {
-    id: null,
-    track: {
-      lat,
-      lon,
-      heading_deg: 0,
-      speed_mps: 0,
-      confidence,
-      event_count: evs.length,
-      status: meetsActive ? "active" : "candidate",
-      campaign_id: 0,
-      updated_ms: now,
-    },
-    state: { last_event_ms: Math.max(...evs.map((e) => e.ts_ms)), vel_n: 0, vel_e: 0, url_hash: evs[0]!.url_hash },
-    eventIds: evs.map((e) => e.id).sort((a, b) => a - b),
-  };
-}
+// Re-exported for tests / eval.
+export { angleDiff, bearing };

@@ -8,6 +8,9 @@ import { claimsAuthority, MAX_TRACE_CHARS } from "../src/trace.js";
 import { MemoryWorld } from "../src/world/memory.js";
 import type { Track } from "../src/types.js";
 
+// Scenario runs must be deterministic and offline: no calls to the public OSRM router.
+process.env.PREDICT_ROUTE_OFFLINE ??= "1";
+
 const NOW = Date.UTC(2026, 10, 8, 16, 0, 0);
 const TRACK: Track = {
   id: 3, lat: 32.9858, lon: -96.77, heading_deg: 90, speed_mps: 11, confidence: 0.9,

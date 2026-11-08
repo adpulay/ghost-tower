@@ -9,3 +9,6 @@ __pycache__/
 agent/logs/
 .DS_Store
 spacetime/dist/
+# extracted copies of the uploaded zips (the canonical INTERFACES.md / TESTING.md live at the repo root)
+A/
+CentralMD/
