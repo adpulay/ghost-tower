@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import L from "leaflet";
 import { parseLatLonList, pointInPolygon, type LatLon } from "../spacetime/geo";
 import { useTables } from "../spacetime/SpacetimeContext";
+import { focusCampaign, focusTrack } from "../spacetime/focusTrack";
 
 const CENTER: LatLon = [32.9858, -96.7501]; // UTD / Campbell Rd, Richardson
 const EVENT_WINDOW_MS = 120_000; // matches the recluster window
@@ -136,8 +137,8 @@ export function AnalystMap() {
   useEffect(() => {
     const map = mapRef.current;
     if (!map) return;
-    const shown = tables.track.filter((t) => t.status === "active" || t.status === "candidate");
-    const t = shown[shown.length - 1];
+    const f = focusTrack(tables.track);
+    const t = f && (f.status === "active" || f.status === "candidate") ? f : undefined;
     if (!t) {
       if (trackMarkerRef.current) {
         trackMarkerRef.current.remove();
@@ -170,8 +171,8 @@ export function AnalystMap() {
     return hit.size;
   }, [tables.alert, tables.anomaly_event]);
   const warned = tables.alert.reduce((s, a) => s + a.recipients, 0);
-  const track = tables.track[tables.track.length - 1];
-  const campaign = tables.campaign[tables.campaign.length - 1];
+  const track = focusTrack(tables.track);
+  const campaign = focusCampaign(track, tables.campaign);
 
   return (
     <div className="map-wrap">

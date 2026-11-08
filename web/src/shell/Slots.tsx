@@ -4,6 +4,7 @@ import { DbConnection, SPACETIME_DB, SPACETIME_HOST } from "../module_bindings";
 import PatrolView from "../patrol/PatrolView";
 import { useTables } from "../spacetime/SpacetimeContext";
 import { TracePanel } from "../trace-panel";
+import { focusTrack } from "../spacetime/focusTrack";
 
 /**
  * Role 1's patrol tablet reads tables through `spacetimedb/react`, so it needs a real
@@ -40,8 +41,7 @@ export function PatrolSlot() {
 /** Role 2's trace panel, fed from the shared Spacetime hook for the live track. */
 export function TracePanelSlot() {
   const { tables } = useTables();
-  const live = tables.track.filter((t) => t.status === "active" || t.status === "candidate");
-  const track = live[live.length - 1] ?? tables.track[tables.track.length - 1];
+  const track = focusTrack(tables.track);
   const traces = track ? tables.agent_trace.filter((r) => r.track_id === track.id) : [];
   return (
     <section className="side-panel">

@@ -14,10 +14,12 @@ android {
         versionCode = 1
         versionName = "0.1"
 
-        // Emulator reaches the host machine at 10.0.2.2. Override for a real phone:
-        //   ./gradlew assembleDebug -PspacetimeUri=http://<laptop-ip>:3000 -PscoreUrl=http://<brev-host>:8001/score
-        val spacetimeUri = (project.findProperty("spacetimeUri") as String?) ?: "http://10.0.2.2:3000"
-        val spacetimeDb = (project.findProperty("spacetimeDb") as String?) ?: "ghost-tower"
+        // Defaults: the shared Maincloud database, so emulators and real phones report to the same
+        // world as the simulator. Local fallback (venue Wi-Fi dies; emulator reaches the host at 10.0.2.2):
+        //   ./gradlew assembleDebug -PspacetimeUri=http://<laptop-ip>:3000 -PspacetimeDb=ghost-tower
+        // The classifier must be reachable from the phone: -PscoreUrl=http://<brev-host>:8001/score
+        val spacetimeUri = (project.findProperty("spacetimeUri") as String?) ?: "https://maincloud.spacetimedb.com"
+        val spacetimeDb = (project.findProperty("spacetimeDb") as String?) ?: "ghost-tower-94144"
         val scoreUrl = (project.findProperty("scoreUrl") as String?) ?: "http://10.0.2.2:8001/score"
         buildConfigField("String", "SPACETIME_URI", "\"$spacetimeUri\"")
         buildConfigField("String", "SPACETIME_DB", "\"$spacetimeDb\"")
