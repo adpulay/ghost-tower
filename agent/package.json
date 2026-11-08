@@ -11,6 +11,7 @@
     "start": "tsx src/cli.ts run",
     "replay": "tsx src/cli.ts replay",
     "warm": "tsx src/cli.ts warm",
+    "ntfy": "tsx src/ntfy_relay.ts",
     "eval": "tsx eval/run.ts",
     "typecheck": "tsc --noEmit",
     "test": "tsx --test test/*.test.ts"
