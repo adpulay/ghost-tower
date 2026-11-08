@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import L from "leaflet";
 import { parseLatLonList, pointInPolygon, type LatLon } from "../spacetime/geo";
 import { useTables } from "../spacetime/SpacetimeContext";
-import { FRIENDLY, hostileSvg, interceptSvg } from "../shell/symbols";
+import { hostileSvg, interceptSvg } from "../shell/symbols";
 
 const CENTER: LatLon = [32.9905, -96.7545]; // UTD / Campbell Rd, Richardson
 const EVENT_WINDOW_MS = 120_000; // matches the recluster window
