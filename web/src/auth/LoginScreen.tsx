@@ -15,50 +15,61 @@ export function LoginScreen() {
 
   return (
     <div className="login">
-      <div className="login-brandband" aria-hidden />
-      <form className="login-card" onSubmit={onSubmit}>
-        <div className="login-mark" dangerouslySetInnerHTML={{ __html: towerMark(40) }} />
-        <h1 className="login-word">Ghost Tower</h1>
-        <p className="login-sub">Operations console — authorized access only</p>
+      <aside className="login-brand">
+        <span className="login-mark" dangerouslySetInnerHTML={{ __html: towerMark(104) }} />
+        <div className="login-brand-mid">
+          <h1 className="login-word">Ghost Tower</h1>
+          <p className="login-kicker">Fake base-station detection network</p>
+        </div>
+        <p className="login-foot">Crowd-sourced alerts from phones in the field, scored and mapped in one console.</p>
+      </aside>
 
-        <label className="login-field">
-          <span>Username</span>
-          <input
-            name="username"
-            autoComplete="username"
-            autoFocus
-            value={user}
-            onChange={(e) => {
-              setUser(e.target.value);
-              setError(false);
-            }}
-          />
-        </label>
+      <main className="login-panel">
+        <form className="login-form" onSubmit={onSubmit}>
+          <h2 className="login-h2">Sign in</h2>
+          <p className="login-lead">Operator access to the detection console.</p>
 
-        <label className="login-field">
-          <span>Password</span>
-          <input
-            name="password"
-            type="password"
-            autoComplete="current-password"
-            value={pass}
-            onChange={(e) => {
-              setPass(e.target.value);
-              setError(false);
-            }}
-          />
-        </label>
+          {error && (
+            <p className="login-error" role="alert">
+              That username or password didn’t match.
+            </p>
+          )}
 
-        {error && (
-          <p className="login-error" role="alert">
-            Incorrect username or password.
-          </p>
-        )}
+          <label className="login-field">
+            <span>Username</span>
+            <input
+              name="username"
+              autoComplete="username"
+              autoFocus
+              value={user}
+              onChange={(e) => {
+                setUser(e.target.value);
+                setError(false);
+              }}
+            />
+          </label>
 
-        <button type="submit" className="login-submit">
-          Sign in
-        </button>
-      </form>
+          <label className="login-field">
+            <span>Password</span>
+            <input
+              name="password"
+              type="password"
+              autoComplete="current-password"
+              value={pass}
+              onChange={(e) => {
+                setPass(e.target.value);
+                setError(false);
+              }}
+            />
+          </label>
+
+          <button type="submit" className="login-submit">
+            Sign in
+          </button>
+
+          <p className="login-fine">Authorized operators only.</p>
+        </form>
+      </main>
     </div>
   );
 }
