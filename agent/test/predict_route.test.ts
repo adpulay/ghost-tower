@@ -5,7 +5,7 @@ import { readFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { test } from "node:test";
 import { fileURLToPath } from "node:url";
-import { bearing, fitMotion, haversine, lineLength, MIN_MOVING_SPEED_MPS, predictRoute, predictRouteTool, type TrailPoint } from "../tools/predict_route/index.js";
+import { bearing, fitMotion, haversine, latestLeg, lineLength, MIN_MOVING_SPEED_MPS, predictRoute, predictRouteTool, type TrailPoint } from "../tools/predict_route/index.js";
 import type { LatLon } from "../src/types.js";
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -117,6 +117,7 @@ test("predict_route: parked and walking speeds are not inflated", async () => {
 
 // ---- trail: direction and speed from recent track positions ----
 
+const angleDiffDeg = (a: number, b: number) => Math.abs((((b - a + 180) % 360) + 360) % 360 - 180);
 const M_LON = 111_320 * Math.cos((START[0] * Math.PI) / 180);
 /** A trail ending at START: `legs` of [seconds, eastMps, northMps], one point per second, with seeded noise. */
 function trail(legs: [number, number, number][], noiseM = 0, seed = 7): TrailPoint[] {
@@ -186,7 +187,29 @@ test("predict_route: snapping (PREDICT_ROUTE_SNAP=1) starts on the matched road,
   assert.equal(ok.basis, "snapped");
   assert.equal(ok.road, "Campbell Road");
   assert.ok(routeUrls[0]!.includes(`driving/${snapAt[1].toFixed(6)},${snapAt[0].toFixed(6)};`), "routes from the snapped position");
-  // Road geometry running west while the trail goes east: not trusted, fall back to the fit.
+  // Road geometry running west while the trail goes east: not trusted. The given heading agrees with
+  // the trail, so it is kept as is.
   const bad = await predictRoute({ ...inp(90, 11, 120), trail: on }, { fetchJson: match(-0.007), offline: false, trailMode: "snap" });
-  assert.equal(bad.basis, "trail");
+  assert.equal(bad.basis, "track");
+});
+
+/** Keep every `every`-th point (and the last), like a track that only updates every `every` seconds. */
+const sparse = (pts: TrailPoint[], every: number) => pts.filter((_, i) => i % every === (pts.length - 1) % every);
+
+test("latestLeg: after a turn only the new road counts, at any update rate", () => {
+  for (const every of [3, 12]) {
+    const t = sparse(trail([[60, 12, 0], [40, 0, 12]], 20), every);
+    const leg = latestLeg(t);
+    assert.equal(leg.turned, true, `turn seen with a point every ${every} s`);
+    if (leg.fit) assert.ok(angleDiffDeg(leg.fit.heading_deg, 0) < 20, `new leg points north (${leg.fit.heading_deg})`);
+    assert.equal(latestLeg(sparse(trail([[90, 12, 0]], 20), every)).turned, false, "a straight road is not a turn");
+  }
+});
+
+test("predict_route: seen live after the Coit Rd turn, no diagonal (track every 12 s at 4x)", async () => {
+  // Track #470: east along Campbell, then north on Coit; the service passed heading 10.6 degrees.
+  const t = sparse(trail([[48, 11, 0], [36, 0, 11]], 30), 12);
+  const out = await predictRoute({ ...inp(10.6, 10, 300), trail: t }, { offline: true });
+  const head = bearing(START, out.path.at(-1)!);
+  assert.ok(head < 25 || head > 355, `route heads north, not northeast (${Math.round(head)} degrees)`);
 });

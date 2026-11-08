@@ -9,14 +9,14 @@
 //   trail   least-squares direction/speed over the last 60 s of track positions
 //   trail+lag the same, starting PREDICT_ROUTE_LAG_S (default 20) seconds ahead along the road
 //   snapped   the trail snapped to roads with OSRM map matching (falls back to trail)
-// ROUTE_EVAL_METHODS=track,trail picks methods.
+// ROUTE_EVAL_METHODS=track,trail picks methods; ROUTE_EVAL_RECLUSTER_S=12 replays the live 4x update rate.
 // Error = distance from the predicted position to the true blaster position 30/60/120 s later.
 // Uses the public OSRM router (OSRM_URL to override); responses are cached in eval/.osrm-cache.json.
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { loadScenario } from '../../sim/src/scenario.ts';
-import { localSink } from '../../sim/src/sinks.ts';
+import { LocalWorld } from '../../spacetime/test/harness.ts';
 import { SimWorld } from '../../sim/src/world.ts';
 import { haversine, predictRoute, type TrailPoint } from '../../agent/tools/predict_route/index.ts';
 import { refreshHeading, DIRECTION_WINDOW_MS } from '../../agent/src/service.ts';
@@ -39,20 +39,30 @@ type Snap = { tMs: number; lat: number; lon: number; heading: number; speed: num
 const HORIZONS = [30, 60, 120];
 const METHODS = (process.env.ROUTE_EVAL_METHODS?.split(',') ?? ['track', 'trail', 'trail+lag', 'snapped']) as string[];
 const LAG_S = Number(process.env.PREDICT_ROUTE_LAG_S || 20);
+/** Track update interval in sim seconds: 3 (real time) or 12 (live at --speed 4x). */
+const RECLUSTER_MS = Number(process.env.ROUTE_EVAL_RECLUSTER_S || 3) * 1000;
 
 async function runScenario(id: string) {
   const s = loadScenario(id);
   const world = new SimWorld(s);
   const truth: { tMs: number; lat: number; lon: number }[] = [];
   const snaps: Snap[] = [];
-  const sink = await localSink(world.t0Ms, nowMs => {
-    const t = sink.world.rows('track').find(r => r.status === 'active');
-    if (t) snaps.push({ tMs: nowMs, lat: t.lat, lon: t.lon, heading: t.heading_deg, speed: t.speed_mps });
-  });
+  // Same as sim/src/sinks.ts localSink, but with the recluster interval as a parameter: live, recluster
+  // runs every 3 s of wall clock, so at --speed 4x the track only updates every 12 s of sim time.
+  const lw = new LocalWorld(world.t0Ms);
+  let nextRecluster = world.t0Ms;
   for (const tick of world.ticks()) {
     const b = tick.truth[0];
     if (b) truth.push({ tMs: tick.tsMs, lat: b.lat, lon: b.lon });
-    await sink.tick(tick.tsMs, tick.truth, tick.events.map(e => e.args));
+    lw.setNow(tick.tsMs);
+    for (const t of tick.truth) lw.call('sim_write_truth', t);
+    for (const r of tick.events) lw.call('report_anomaly', r.args);
+    while (tick.tsMs >= nextRecluster) {
+      lw.recluster();
+      nextRecluster += RECLUSTER_MS;
+      const t = lw.rows('track').find(r => r.status === 'active');
+      if (t) snaps.push({ tMs: tick.tsMs, lat: t.lat, lon: t.lon, heading: t.heading_deg, speed: t.speed_mps });
+    }
   }
   const truthAt = (ms: number) => {
     let best = truth[0]!;
