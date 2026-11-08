@@ -30,5 +30,7 @@
     "web/src/spacetime/focusTrack.test.ts",
     "web/src/spacetime/geo.ts",
     "web/src/spacetime/geo.test.ts"
-  ]
+  ],
+  // Imports agent/ code (TypeScript parameter properties), so it runs under tsx (npm run eval:routes) instead.
+  "exclude": ["eval/src/route_accuracy.ts"]
 }

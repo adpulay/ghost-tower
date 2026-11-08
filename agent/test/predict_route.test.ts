@@ -5,7 +5,7 @@ import { readFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { test } from "node:test";
 import { fileURLToPath } from "node:url";
-import { bearing, haversine, lineLength, MIN_MOVING_SPEED_MPS, predictRoute } from "../tools/predict_route/index.js";
+import { bearing, fitMotion, haversine, lineLength, MIN_MOVING_SPEED_MPS, predictRoute, predictRouteTool, type TrailPoint } from "../tools/predict_route/index.js";
 import type { LatLon } from "../src/types.js";
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -113,4 +113,80 @@ test("predict_route: parked and walking speeds are not inflated", async () => {
   assert.ok(haversine(START, parked.path.at(-1)!) < 1);
   const walker = await predictRoute(inp(90, 1.4, 300), { offline: true });
   assert.ok(Math.abs(haversine(START, walker.path.at(-1)!) - 1.4 * 300) <= 5);
+});
+
+// ---- trail: direction and speed from recent track positions ----
+
+const M_LON = 111_320 * Math.cos((START[0] * Math.PI) / 180);
+/** A trail ending at START: `legs` of [seconds, eastMps, northMps], one point per second, with seeded noise. */
+function trail(legs: [number, number, number][], noiseM = 0, seed = 7): TrailPoint[] {
+  let r = seed;
+  const rnd = () => ((r = (r * 16807) % 2147483647) / 2147483647 - 0.5) * 2 * noiseM;
+  const steps: [number, number][] = [];
+  for (const [secs, e, n] of legs) for (let i = 0; i < secs; i++) steps.push([e, n]);
+  // Walk backwards from START so the last point is the current position.
+  const pts: TrailPoint[] = [];
+  let [la, lo] = START;
+  for (let i = steps.length; i >= 0; i--) {
+    pts.unshift({ lat: la + rnd() / 111_320, lon: lo + rnd() / M_LON, ms: 1_000_000 + i * 1000 });
+    if (i > 0) { la -= steps[i - 1]![1] / 111_320; lo -= steps[i - 1]![0] / M_LON; }
+  }
+  return pts;
+}
+
+test("fitMotion: recovers direction and speed from a noisy trail", () => {
+  const f = fitMotion(trail([[60, 11, 0]], 40))!;
+  assert.ok(Math.abs(f.heading_deg - 90) < 10, `heading ${f.heading_deg}`);
+  assert.ok(Math.abs(f.speed_mps - 11) < 1.5, `speed ${f.speed_mps}`);
+  assert.equal(fitMotion(trail([[60, 0, 0]], 5)), null, "parked: no direction");
+  assert.equal(fitMotion(trail([[1, 11, 0]])), null, "too few points");
+});
+
+test("predict_route: the trail overrules a noisy heading (seen live: 312 degrees for a car driving east)", async () => {
+  const out = await predictRoute({ ...inp(312, 4, 240), trail: trail([[60, 11, 0]], 40) }, { fetchJson: fixture, offline: false });
+  assert.equal(out.basis, "trail");
+  assert.equal(out.source, "osrm");
+  assert.ok(out.path.at(-1)![1] > START[1] + 0.02, "follows Campbell Rd east");
+  for (const p of out.path) assert.ok(distToRoad(p) < 60, `${p} is off Campbell Rd`);
+});
+
+test("predict_route: mid-turn, the recent movement wins over the 60 s fit", async () => {
+  // 50 s east, then 10 s north; the service already passes the new heading (north).
+  const out = await predictRoute({ ...inp(0, 12, 120), trail: trail([[50, 12, 0], [10, 0, 12]]) }, { offline: true });
+  assert.equal(out.basis, "track");
+  assert.ok(Math.abs(bearing(START, out.path.at(-1)!)) < 5, "points north");
+});
+
+test("predict_route: no trail, or the trail ignored, behaves exactly as before", async () => {
+  const a = await predictRoute(inp(90, 11, 240), { fetchJson: fixture, offline: false });
+  const b = await predictRoute({ ...inp(90, 11, 240), trail: trail([[60, 11, 0]]) }, { fetchJson: fixture, offline: false, trailMode: "none" });
+  assert.deepEqual(a.path, b.path);
+  assert.equal(a.basis, "track");
+});
+
+test("predict_route tool: a trail in the model's arguments is ignored; only the service's counts", async () => {
+  const ctx = { memory: {}, trackId: 1, now: () => 0, world: undefined as never };
+  const out = await predictRouteTool.run({ ...inp(90, 11, 120), trail: trail([[60, 0, 11]]) } as never, ctx);
+  assert.equal(out.basis, "track");
+});
+
+test("predict_route: snapping (PREDICT_ROUTE_SNAP=1) starts on the matched road, and is refused when it disagrees", async () => {
+  const on = trail([[60, 11, 0]], 20);
+  const snapAt: [number, number] = [32.97895, -96.7915];
+  const routeUrls: string[] = [];
+  const match = (lonOffset: number) => async (url: string) =>
+    (url.includes("/route/") && routeUrls.push(url), url.includes("/match/"))
+      ? {
+          code: "Ok",
+          matchings: [{ confidence: 0.9, distance: 650, geometry: { coordinates: [[snapAt[1] - lonOffset, snapAt[0]], [snapAt[1], snapAt[0]]] } }],
+          tracepoints: on.map((_, i) => (i === on.length - 1 ? { location: [snapAt[1], snapAt[0]], matchings_index: 0, name: "Campbell Road" } : { location: [0, 0], matchings_index: 0 })),
+        }
+      : FIXTURE;
+  const ok = await predictRoute({ ...inp(90, 11, 120), trail: on }, { fetchJson: match(0.007), offline: false, trailMode: "snap" });
+  assert.equal(ok.basis, "snapped");
+  assert.equal(ok.road, "Campbell Road");
+  assert.ok(routeUrls[0]!.includes(`driving/${snapAt[1].toFixed(6)},${snapAt[0].toFixed(6)};`), "routes from the snapped position");
+  // Road geometry running west while the trail goes east: not trusted, fall back to the fit.
+  const bad = await predictRoute({ ...inp(90, 11, 120), trail: on }, { fetchJson: match(-0.007), offline: false, trailMode: "snap" });
+  assert.equal(bad.basis, "trail");
 });
