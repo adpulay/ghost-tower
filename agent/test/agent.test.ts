@@ -10,6 +10,8 @@ import type { Track } from "../src/types.js";
 
 // Scenario runs must be deterministic and offline: no calls to the public OSRM router.
 process.env.PREDICT_ROUTE_OFFLINE ??= "1";
+// These synthetic tracks are not on real roads and expect the plain straight-line projection.
+process.env.PREDICT_ROUTE_ROADMAP ??= "0";
 
 const NOW = Date.UTC(2026, 10, 8, 16, 0, 0);
 const TRACK: Track = {

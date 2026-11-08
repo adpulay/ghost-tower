@@ -10,6 +10,8 @@ import type { Prediction, Track } from "../src/types.js";
 
 process.env.NEMOTRON_PROVIDER ??= "mock"; // draft_report uses its fixed templates: no network
 process.env.PREDICT_ROUTE_OFFLINE ??= "1";
+// These synthetic tracks are not on real roads and expect the plain straight-line projection.
+process.env.PREDICT_ROUTE_ROADMAP ??= "0";
 
 const NOW = Date.UTC(2026, 10, 8, 16, 0, 0);
 const TRACK: Track = {

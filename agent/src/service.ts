@@ -4,7 +4,7 @@ import { PlaybookInvestigator } from "./playbook.js";
 import { bearingDeg, compass, haversineM, headingDelta } from "./geo.js";
 import type { ChatModel } from "./llm/types.js";
 import { writeTrace } from "./trace.js";
-import type { Track } from "./types.js";
+import type { LatLon, Track } from "./types.js";
 import type { World } from "./world/World.js";
 
 export const TURN_THRESHOLD_DEG = 45;
@@ -14,6 +14,27 @@ export const TURN_THRESHOLD_DEG = 45;
  * computation (predict_route + agent_set_prediction, no model call), so they can be this frequent.
  */
 export const STALE_PREDICTION_MS = 4_000;
+
+/**
+ * A refresh whose intercept lands more than this far from the one already published is held back once: a single
+ * odd fix can send the predicted path down the wrong road for one refresh, and a real turn looks the same for that
+ * one refresh. If the next refresh agrees with the held one (within HOLD_CONFIRM_M) it is published, so a real
+ * turn shows up one refresh (4 s) late; if it goes back to the old path, the odd one is dropped.
+ */
+export const HOLD_JUMP_M = 1_000;
+export const HOLD_CONFIRM_M = 600;
+
+/**
+ * True if a refresh landing at `next` should wait for confirmation (see HOLD_JUMP_M). A refresh made while the
+ * track's heading has swung more than HOLD_EXEMPT_TURN_DEG from the route's is a turn the service already knows
+ * about, so it is never held; the odd jumps this guards against happen at a steady heading.
+ */
+export const HOLD_EXEMPT_TURN_DEG = 45;
+export function shouldHoldRefresh(published: LatLon | undefined, held: LatLon | undefined, next: LatLon, headingChangeDeg = 0): boolean {
+  if (headingChangeDeg > HOLD_EXEMPT_TURN_DEG) return false;
+  if (!published || haversineM(published, next) <= HOLD_JUMP_M) return false;
+  return !(held && haversineM(held, next) <= HOLD_CONFIRM_M);
+}
 /** Below this speed, heading is noise (parked / stop-and-go) and never triggers a replan. */
 export const MIN_TURN_SPEED_MPS = 2;
 const RETRY_AFTER_ERROR_MS = 10_000;
@@ -58,6 +79,11 @@ interface TrackState {
   activeSinceMs?: number;
   /** Track positions over the last TRAIL_WINDOW_MS of the track's own clock (updated_ms), for predict_route. */
   trail: TrailPoint[];
+  /** Intercept of the last route a refresh published, and one that jumped away from it and awaits confirmation. */
+  publishedIntercept?: LatLon;
+  heldIntercept?: LatLon;
+  /** Speed the last refresh predicted at, handed back to predict_route so the speed changes smoothly. */
+  lastSpeed?: number;
 }
 
 /**
@@ -269,7 +295,17 @@ export class AgentService {
     try {
       const out = await predictRoute({
         lat: track.lat, lon: track.lon, heading_deg: heading, speed_mps: track.speed_mps, horizon_s: 300, trail: st.trail,
+        speed_hint: st.lastSpeed,
       });
+      st.lastSpeed = out.speed_mps;
+      const headingChange = st.predictionHeading === undefined ? 0 : headingDelta(heading, st.predictionHeading);
+      if (shouldHoldRefresh(st.publishedIntercept, st.heldIntercept, out.intercept, headingChange)) {
+        st.heldIntercept = out.intercept; // wait for the next refresh to agree before swinging the map
+        st.predictionMs = now;
+        return;
+      }
+      st.heldIntercept = undefined;
+      st.publishedIntercept = out.intercept;
       await this.world.agentSetPrediction({
         track_id: track.id,
         path_json: JSON.stringify(out.path),
@@ -296,6 +332,9 @@ export class AgentService {
       .then((r) => {
         if (mode === "investigate") st.investigated = true;
         if (r.predictionAtMs !== undefined) {
+          // A full investigation or replan published its own route: compare later refreshes against that.
+          st.publishedIntercept = undefined;
+          st.heldIntercept = undefined;
           st.predictionMs = r.predictionAtMs;
           st.predictionHeading = r.predictionHeading;
           st.predictionSpeed = r.predictionSpeed;

@@ -9,6 +9,7 @@
 //   trail   least-squares direction/speed over the last 60 s of track positions
 //   trail+lag the same, starting PREDICT_ROUTE_LAG_S (default 20) seconds ahead along the road
 //   snapped   the trail snapped to roads with OSRM map matching (falls back to trail)
+//   roadmap   the trail on the offline road map (what the agent runs by default; no router calls)
 // ROUTE_EVAL_METHODS=track,trail picks methods.
 // Error = distance from the predicted position to the true blaster position 30/60/120 s later.
 // Uses the public OSRM router (OSRM_URL to override); responses are cached in eval/.osrm-cache.json.
@@ -19,6 +20,7 @@ import { loadScenario } from '../../sim/src/scenario.ts';
 import { localSink } from '../../sim/src/sinks.ts';
 import { SimWorld } from '../../sim/src/world.ts';
 import { haversine, predictRoute, type TrailPoint } from '../../agent/tools/predict_route/index.ts';
+import { defaultRoadGraph } from '../../agent/tools/predict_route/roadgraph.ts';
 import { refreshHeading, DIRECTION_WINDOW_MS } from '../../agent/src/service.ts';
 
 const CACHE = join(dirname(fileURLToPath(import.meta.url)), '..', '.osrm-cache.json');
@@ -37,7 +39,7 @@ async function fetchJson(url: string): Promise<unknown> {
 
 type Snap = { tMs: number; lat: number; lon: number; heading: number; speed: number };
 const HORIZONS = [30, 60, 120];
-const METHODS = (process.env.ROUTE_EVAL_METHODS?.split(',') ?? ['track', 'trail', 'trail+lag', 'snapped']) as string[];
+const METHODS = (process.env.ROUTE_EVAL_METHODS?.split(',') ?? ['track', 'trail', 'trail+lag', 'snapped', 'roadmap']) as string[];
 const LAG_S = Number(process.env.PREDICT_ROUTE_LAG_S || 20);
 
 async function runScenario(id: string) {
@@ -74,7 +76,9 @@ async function runScenario(id: string) {
     for (const m of METHODS) {
       const out = await predictRoute(
         { lat: cur.lat, lon: cur.lon, heading_deg: heading, speed_mps: cur.speed, horizon_s: 300, trail: m === 'track' ? undefined : trail },
-        { fetchJson, offline: false, trailMode: m === 'track' ? 'none' : m.startsWith('snapped') ? 'snap' : 'fit', lagS: m.endsWith('+lag') ? LAG_S : 0 },
+        m === 'roadmap'
+          ? { roads: defaultRoadGraph(), trailMode: 'fit' }
+          : { fetchJson, offline: false, trailMode: m === 'track' ? 'none' : m.startsWith('snapped') ? 'snap' : 'fit', lagS: m.endsWith('+lag') ? LAG_S : 0 },
       );
       basisCount[`${m}:${out.basis}/${out.source}`] = (basisCount[`${m}:${out.basis}/${out.source}`] ?? 0) + 1;
       for (const h of HORIZONS) {

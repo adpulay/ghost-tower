@@ -4,7 +4,7 @@ import { MockPolicy } from "../src/llm/mockPolicy.js";
 import { runScenario } from "../src/runScenario.js";
 import { SCENARIOS } from "../src/scenarios.js";
 import {
-  AgentService, DIRECTION_TOLERANCE_DEG, FIRST_WARNING_MAX_WAIT_MS, STALE_PREDICTION_MS, directionReliable, refreshHeading, type AgentMode,
+  AgentService, DIRECTION_TOLERANCE_DEG, FIRST_WARNING_MAX_WAIT_MS, HOLD_CONFIRM_M, HOLD_JUMP_M, STALE_PREDICTION_MS, directionReliable, refreshHeading, shouldHoldRefresh, type AgentMode,
 } from "../src/service.js";
 import { bearingDeg } from "../src/geo.js";
 import type { ChatModel } from "../src/llm/types.js";
@@ -13,6 +13,8 @@ import type { Track } from "../src/types.js";
 
 // Scenario runs must be deterministic and offline: no calls to the public OSRM router.
 process.env.PREDICT_ROUTE_OFFLINE ??= "1";
+// These synthetic tracks are not on real roads and expect the plain straight-line projection.
+process.env.PREDICT_ROUTE_ROADMAP ??= "0";
 
 test("demo-01: investigates on active, replans after the Coit Rd turn, prediction updates", async () => {
   const run = await runScenario(SCENARIOS["demo-01"], new MockPolicy());
@@ -230,4 +232,18 @@ test("refreshHeading: trusts the reported heading, but follows the movement when
   assert.ok(Math.abs(refreshHeading({ ...at, speed_mps: 12, heading_deg: 314 }, pos(9, 12), now) - 90) < 2, "contradicts the movement: use where it went");
   assert.ok(Math.abs(refreshHeading({ ...at, speed_mps: 3, heading_deg: 314 }, pos(9, 12), now) - 90) < 2, "slow track: use where it went");
   assert.equal(refreshHeading({ ...at, speed_mps: 0.5, heading_deg: 200 }, pos(2, 0), T0 + 1_000, 90), 90, "barely moving: keep the last heading");
+});
+
+test("shouldHoldRefresh: a route that jumps far is held for one refresh, then accepted if it holds, dropped if it was a blip", () => {
+  const here: [number, number] = [32.98, -96.77];
+  const east = (m: number): [number, number] => [here[0], here[1] + m / 93_000];
+  assert.equal(shouldHoldRefresh(undefined, undefined, east(5000)), false, "nothing published yet: publish");
+  assert.equal(shouldHoldRefresh(here, undefined, east(HOLD_JUMP_M - 50)), false, "a normal step is published at once");
+  assert.equal(shouldHoldRefresh(here, undefined, east(HOLD_JUMP_M + 500)), true, "a big jump waits for a second opinion");
+  const jumped = east(HOLD_JUMP_M + 500);
+  assert.equal(shouldHoldRefresh(here, jumped, east(HOLD_JUMP_M + 500 + HOLD_CONFIRM_M - 50)), false, "the next refresh agrees: published");
+  assert.equal(shouldHoldRefresh(here, jumped, east(HOLD_JUMP_M + 500 + HOLD_CONFIRM_M + 400)), true, "the next jump is somewhere else again: still held");
+  assert.equal(shouldHoldRefresh(here, jumped, east(100)), false, "back to the old route: the blip is dropped, the route is published");
+  assert.equal(shouldHoldRefresh(here, undefined, east(HOLD_JUMP_M + 500), 90), false, "a turn the service already sees is never held");
+  assert.equal(shouldHoldRefresh(here, undefined, east(HOLD_JUMP_M + 500), 20), true, "a small heading wobble does not exempt a jump");
 });

@@ -4,22 +4,26 @@
 //   predict_route(lat, lon, heading_deg, speed_mps, horizon_s)
 //     -> { path: [[lat,lon],...], intercept: [lat,lon], eta_s: int, source: "osrm" | "straight_line" }   (INTERFACES.md §7)
 //
-// 1. Road-following: snap to the nearest road with OSRM, route toward a point straight ahead
-//    along heading_deg, and walk that road geometry for speed_mps * horizon_s meters,
-//    sampling a point every 15 s of travel.
-// 2. If OSRM fails, times out, is rate-limited, or wanders off the heading (e.g. the only route
-//    starts with a U-turn), fall back to a straight-line projection along heading_deg.
-// 3. Intercept: the path point at ~65% of the horizon, so a patrol has time to get there;
+// 1. Road map (default): walk the offline OpenStreetMap road graph (roadgraph.ts, roads_richardson.json).
+//    Snap to the road the vehicle is on (the one that best explains its last ~20 s of positions and runs the
+//    way it is heading), then follow it, taking the straightest exit at each junction, for speed_mps * horizon_s
+//    meters, sampling a point every 15 s of travel. No network, no rate limits, no off-road target to snap to.
+// 2. If the position is off the map or on no road heading that way, and the network is allowed: route with OSRM
+//    toward a point straight ahead along heading_deg (rejected if it starts with a U-turn).
+// 3. Otherwise a straight-line projection along heading_deg.
+// 4. Intercept: the path point at ~65% of the horizon, so a patrol has time to get there;
 //    eta_s is when the blaster reaches it.
 //
-// Env: OSRM_URL (self-hosted router), PREDICT_ROUTE_OFFLINE=1 (always straight line; the venue
-// Wi-Fi drill). Both are read per call.
+// Env: PREDICT_ROUTE_ROADMAP=0 (don't use the road map), OSRM_URL (self-hosted router), PREDICT_ROUTE_OFFLINE=1
+// (no network: the road map still works; only the OSRM step is skipped). Read per call.
 //
 // Difference from the Python original: speed is capped at 40 m/s and the horizon at 900 s, because
 // the model supplies these arguments and an absurd value would otherwise send OSRM a huge route.
 
+import { appendFileSync } from "node:fs";
 import type { LatLon } from "../../src/types.js";
 import type { PredictRouteOutput, ToolDef } from "../types.js";
+import { defaultRoadGraph, type RoadGraph } from "./roadgraph.js";
 
 const EARTH_R = 6371008.8;
 const SAMPLE_S = 15;
@@ -51,7 +55,18 @@ export interface PredictRouteInput {
    * single noisy heading/speed above. Supplied by the agent service, never by the model.
    */
   trail?: TrailPoint[];
+  /**
+   * The speed the previous prediction for this track used. A speed fitted from the trail may move at most
+   * SPEED_STEP_DOWN..SPEED_STEP_UP times it per call: the live track's fitted speed swung between 6 and 20 m/s
+   * for a car doing 11, which stretched and shrank the predicted path by kilometres from one refresh to the next.
+   * Supplied by the agent service, never by the model.
+   */
+  speed_hint?: number;
 }
+
+/** Limits on how far a trail-fitted speed may move from the previous one, per prediction. */
+export const SPEED_STEP_DOWN = 0.75;
+export const SPEED_STEP_UP = 1.33;
 
 export interface TrailPoint {
   lat: number;
@@ -62,12 +77,17 @@ export interface TrailPoint {
 export interface PredictRouteDeps {
   /** Fetch + parse JSON for a URL. Injectable for tests. */
   fetchJson?: (url: string) => Promise<unknown>;
-  /** Force the straight-line projection (overrides PREDICT_ROUTE_OFFLINE). */
+  /** No network (overrides PREDICT_ROUTE_OFFLINE). The road map, if used, still works. */
   offline?: boolean;
   /** How to use `trail`: snap to roads (default), least-squares fit only, or ignore it. For evals. */
   trailMode?: "snap" | "fit" | "none";
   /** Seconds the track lags the blaster (default REPORT_LAG_S; only applied when a trail is given). */
   lagS?: number;
+  /**
+   * The offline road map to walk. Default: the committed Richardson map, but only when the caller injects neither
+   * `fetchJson` nor `offline` (those mean "test the router / straight-line paths"). null disables the map.
+   */
+  roads?: RoadGraph | null;
 }
 
 // ---- geometry ----
@@ -174,6 +194,8 @@ const MAX_TRAIL_POINTS = 10;
 /** Below this much movement over the trail, there is no direction to snap. */
 const MIN_TRAIL_SPAN_M = 60;
 const MIN_MATCH_CONFIDENCE = 0.5;
+/** How much recent trail the road map weighs when deciding which road the vehicle is on. */
+const ROAD_EVIDENCE_MS = 20_000;
 /** Short window used to notice a turn the 60 s fit has not caught up with. */
 const TURN_WINDOW_MS = 10_000;
 /** The short fit and the given heading must agree this closely to count as a turn. */
@@ -300,13 +322,34 @@ export async function snapTrail(trail: readonly TrailPoint[], fetchJson: (url: s
 
 const r6 = (p: LatLon): LatLon => [Math.round(p[0] * 1e6) / 1e6, Math.round(p[1] * 1e6) / 1e6];
 
+/**
+ * Diagnostics: with PREDICT_ROUTE_LOG=<file>, every call appends one JSON line (its input and the result's start,
+ * intercept, source, basis and speed) so a bad path seen live can be replayed exactly.
+ */
+function logCall(input: PredictRouteInput, out: PredictRouteOutput): void {
+  const file = process.env.PREDICT_ROUTE_LOG;
+  if (!file) return;
+  try {
+    appendFileSync(file, JSON.stringify({ wall: Date.now(), input, out: { start: out.path[0], second: out.path[1], intercept: out.intercept, source: out.source, basis: out.basis, speed_mps: out.speed_mps } }) + "\n");
+  } catch {
+    // diagnostics must never break a prediction
+  }
+}
+
 export async function predictRoute(input: PredictRouteInput, deps: PredictRouteDeps = {}): Promise<PredictRouteOutput> {
+  const out = await predictRouteImpl(input, deps);
+  logCall(input, out);
+  return out;
+}
+
+async function predictRouteImpl(input: PredictRouteInput, deps: PredictRouteDeps = {}): Promise<PredictRouteOutput> {
   let lat = Number(input.lat), lon = Number(input.lon);
   let reported = Math.min(MAX_SPEED_MPS, Math.max(0, Number(input.speed_mps) || 0));
   let heading = Number(input.heading_deg) || 0;
   const horizon = Math.min(MAX_HORIZON_S, Math.max(SAMPLE_S, Number(input.horizon_s) || 300));
   const offline = deps.offline ?? process.env.PREDICT_ROUTE_OFFLINE === "1";
   const fetchJson = deps.fetchJson ?? defaultFetchJson;
+  const roads = deps.roads !== undefined ? deps.roads : deps.fetchJson === undefined && deps.offline === undefined ? defaultRoadGraph() : null;
 
   // Prefer the trail over the single heading/speed: its least-squares direction and speed (or, when
   // enabled, the trail snapped to roads). On simulator ground truth this cut the median error at
@@ -340,15 +383,41 @@ export async function predictRoute(input: PredictRouteInput, deps: PredictRouteD
     } else if (fit) {
       [heading, reported, basis] = [fit.heading_deg, Math.min(MAX_SPEED_MPS, fit.speed_mps), "trail"];
     }
+    const hint = Number(input.speed_hint);
+    if (basis !== "track" && Number.isFinite(hint) && hint >= MOVING_MPS) {
+      reported = Math.min(hint * SPEED_STEP_UP, Math.max(hint * SPEED_STEP_DOWN, reported));
+    }
   }
   const speed = reported >= MOVING_MPS ? Math.max(reported, MIN_MOVING_SPEED_MPS) : reported;
   const lagS = basis === "track" ? 0 : Math.max(0, deps.lagS ?? Number(process.env.PREDICT_ROUTE_LAG_S ?? REPORT_LAG_S));
   const lagM = speed >= MOVING_MPS ? speed * lagS : 0;
   const distM = lagM + speed * horizon;
 
-  let source: "osrm" | "straight_line" = "straight_line";
+  let source: "roadmap" | "osrm" | "straight_line" = "straight_line";
   let line: LatLon[] | null = null;
-  if (distM >= 1 && !offline) {
+  if (roads && distM >= 1) {
+    // Which way the road runs is read from the last few seconds of movement: the road map keeps a noisy fix on the
+    // right road, and this reacts to a turn as soon as the track has rounded the corner (the 60 s fit takes ~30 s
+    // longer). Without a usable short trail, the heading from above is used.
+    const recent = input.trail?.length && trailMode !== "none" ? fitMotion(input.trail, TURN_WINDOW_MS) : null;
+    const roadHeading = recent && speed >= MOVING_MPS ? recent.heading_deg : heading;
+    // The last ~20 s of positions, newest weighted most (half-life 5 s): the road is the one that explains them all.
+    const rt = input.trail?.length && trailMode !== "none" ? recentTrail(input.trail, ROAD_EVIDENCE_MS) : [];
+    const lastMs = rt.length ? rt[rt.length - 1]!.ms : 0;
+    const evidence = rt.length >= 3 ? rt.map((q) => ({ p: [q.lat, q.lon] as LatLon, w: 0.5 ** ((lastMs - q.ms) / 12000) })) : undefined;
+    const longFit = input.trail?.length && trailMode !== "none" ? fitMotion(input.trail) : null;
+    line = roads.line([lat, lon], roadHeading, distM, evidence, longFit?.heading_deg);
+    if (line) {
+      source = "roadmap";
+      const length = lineLength(line);
+      // A dead end or the edge of the map: carry on straight along the last stretch.
+      if (length < distM) {
+        const lastB = bearing(line[line.length - 2]!, line[line.length - 1]!);
+        line.push(project(line[line.length - 1]!, lastB, distM - length));
+      }
+    }
+  }
+  if (!line && distM >= 1 && !offline) {
     try {
       line = await osrmRoadLine(lat, lon, heading, distM, fetchJson);
       if (line) source = "osrm";
@@ -364,7 +433,7 @@ export async function predictRoute(input: PredictRouteInput, deps: PredictRouteD
   if (horizon % SAMPLE_S) path.push(walk(line, distM));
   const eta = Math.round(horizon * INTERCEPT_FRAC);
   const intercept = walk(line, lagM + speed * eta);
-  return { path: path.map(r6), intercept: r6(intercept), eta_s: eta, source, basis, ...(road ? { road } : {}) };
+  return { path: path.map(r6), intercept: r6(intercept), eta_s: eta, source, basis, speed_mps: Math.round(speed * 100) / 100, ...(road ? { road } : {}) };
 }
 
 export const predictRouteTool: ToolDef<PredictRouteInput, PredictRouteOutput> = {
@@ -390,7 +459,7 @@ export const predictRouteTool: ToolDef<PredictRouteInput, PredictRouteOutput> = 
   },
   summarize(out) {
     const [la, lo] = out.intercept;
-    const how = out.source === "osrm" ? (out.basis === "snapped" ? `along roads, snapped to ${out.road ?? "the road"}` : "along roads") : "straight-line";
+    const how = out.source === "roadmap" || out.source === "osrm" ? (out.basis === "snapped" ? `along roads, snapped to ${out.road ?? "the road"}` : "along roads") : "straight-line";
     return `Predicted ${out.path.length}-point route (${how}); intercept at ${la.toFixed(4)}, ${lo.toFixed(4)} in ~${out.eta_s} s.`;
   },
 };

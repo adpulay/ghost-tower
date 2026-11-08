@@ -13,6 +13,8 @@ import { SCENARIOS } from "../src/scenarios.js";
 
 // Scripted scenarios are straight-line; keep the eval deterministic and off the public OSRM router.
 process.env.PREDICT_ROUTE_OFFLINE ??= "1";
+// These synthetic tracks are not on real roads and expect the plain straight-line projection.
+process.env.PREDICT_ROUTE_ROADMAP ??= "0";
 
 const here = dirname(fileURLToPath(import.meta.url));
 loadDotEnv(resolve(here, "../.env"));

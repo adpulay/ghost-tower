@@ -5,12 +5,17 @@ export interface PredictRouteOutput {
   path: LatLon[];
   intercept: LatLon;
   eta_s: number;
-  /** Whether the path follows roads (OSRM) or is the straight-line fallback. */
-  source?: "osrm" | "straight_line";
+  /**
+   * How the path was built: "roadmap" walks the offline OpenStreetMap road graph, "osrm" follows a route from the
+   * public router, "straight_line" is the plain projection (nothing better was available).
+   */
+  source?: "roadmap" | "osrm" | "straight_line";
   /** Where the start/direction/speed came from: the track row, its recent trail, or the trail snapped to roads. */
   basis?: "track" | "trail" | "snapped";
   /** Road the trail snapped to, when known. */
   road?: string;
+  /** The speed the path was built at (m/s), so the service can pass it back as `speed_hint` next time. */
+  speed_mps?: number;
 }
 
 /** Per-investigation scratch memory so the model doesn't have to copy big arrays between tools. */
