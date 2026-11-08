@@ -1,6 +1,6 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import L from "leaflet";
-import { parseLatLonList, type LatLon } from "../spacetime/geo";
+import { parseLatLonList, pointInPolygon, type LatLon } from "../spacetime/geo";
 import { useTables } from "../spacetime/SpacetimeContext";
 import { FRIENDLY, hostileSvg, interceptSvg } from "../shell/symbols";
 
@@ -100,8 +100,9 @@ export function AnalystMap() {
     for (const p of tables.prediction) {
       const path = parseLatLonList(p.path_json);
       if (path.length > 1) {
-        L.polyline(path, { color: "#08111e", weight: 7, opacity: 0.7 }).addTo(layer);
-        L.polyline(path, { color: FRIENDLY, weight: 3, dashArray: "2 9", lineCap: "square", opacity: 1 }).addTo(layer);
+        // White casing under a dark dashed core so the path reads on both light map tiles and projectors.
+        L.polyline(path, { color: "#ffffff", weight: 9, opacity: 0.95 }).addTo(layer);
+        L.polyline(path, { color: "#1e3a8a", weight: 4, dashArray: "10 8" }).addTo(layer);
       }
       L.marker([p.intercept_lat, p.intercept_lon], { icon: interceptIcon })
         .bindTooltip(`Intercept point, ETA ${p.eta_s} s at prediction`)
@@ -158,37 +159,54 @@ export function AnalystMap() {
     );
   }, [tables.track]);
 
+  const live = tables.anomaly_event.filter((e) => now - e.ts_ms <= EVENT_WINDOW_MS).length;
+  // There are no phone ids in the schema, so "hit after warning" counts distinct reports that land
+  // inside an alert zone after that alert was sent.
+  const hitAfterWarning = useMemo(() => {
+    const hit = new Set<number>();
+    for (const a of tables.alert) {
+      const zone = parseLatLonList(a.zone_json);
+      if (zone.length < 3) continue;
+      for (const e of tables.anomaly_event) {
+        if (e.ts_ms > a.sent_ms && pointInPolygon([e.lat, e.lon], zone)) hit.add(e.id);
+      }
+    }
+    return hit.size;
+  }, [tables.alert, tables.anomaly_event]);
+  const warned = tables.alert.reduce((s, a) => s + a.recipients, 0);
+  const track = tables.track[tables.track.length - 1];
+  const campaign = tables.campaign[tables.campaign.length - 1];
+
   return (
     <div className="map-wrap">
       <div ref={hostRef} className="map" />
-      {status === "error" && <div className="feed-banner" role="alert">Feed down: {detail}</div>}
 
-      <ul className="legend" aria-label="Map key">
-        <li>
-          <span dangerouslySetInnerHTML={{ __html: hostileSvg(18) }} />
-          Blaster, estimated position
-        </li>
-        <li>
-          <svg viewBox="0 0 18 18"><circle cx="9" cy="9" r="5" fill={EVENT} stroke="#08111e" strokeWidth="1.5" /></svg>
-          Phone report, fades over 2 min
-        </li>
-        <li>
-          <svg viewBox="0 0 18 18"><path d="M1 9h16" stroke={FRIENDLY} strokeWidth="3" strokeDasharray="2 4" /></svg>
-          Predicted route
-        </li>
-        <li>
-          <span dangerouslySetInnerHTML={{ __html: interceptSvg(18) }} />
-          Intercept point
-        </li>
-        <li>
-          <svg viewBox="0 0 18 18"><rect x="2" y="3" width="14" height="12" fill={ALERT_ZONE} fillOpacity=".25" stroke={ALERT_ZONE} strokeWidth="2" /></svg>
-          Warning sent to phones here
-        </li>
-        <li>
-          <svg viewBox="0 0 18 18"><circle cx="9" cy="9" r="3.5" fill="#8396ae" fillOpacity=".8" /></svg>
-          Phones {mode === "mock" && <em>simulated</em>}
-        </li>
-      </ul>
+      <div className="hud hud-top">
+        <div className="title">GHOST TOWER</div>
+        <div className={`pill pill-${status}`}>
+          {status === "connected" ? "● live" : status}
+        </div>
+        {mode === "mock" && <div className="pill pill-sim">simulated data</div>}
+        {debug && <div className="pill pill-debug">debug: ground truth visible</div>}
+        {status === "error" && <div className="error">{detail}</div>}
+      </div>
+
+      <div className="hud hud-stats">
+        <div><b>{live}</b><span>reports (120 s)</span></div>
+        <div><b>{warned}</b><span>phones warned</span></div>
+        <div><b>{hitAfterWarning}</b><span>hit after warning</span></div>
+        <div><b>{track ? track.status : "—"}</b><span>track</span></div>
+        <div><b>{campaign ? campaign.brand : "—"}</b><span>campaign</span></div>
+      </div>
+
+      <div className="hud hud-legend">
+        <div><i className="dot grey" /> phones {mode === "mock" && <em>(simulated)</em>}</div>
+        <div><i className="dot orange" /> anomaly events</div>
+        <div><i className="dot red" /> blaster estimate</div>
+        <div><i className="dash" /> predicted path</div>
+        <div><i className="dot zone" /> alert zone</div>
+        <div><i className="star">★</i> intercept point</div>
+      </div>
     </div>
   );
 }

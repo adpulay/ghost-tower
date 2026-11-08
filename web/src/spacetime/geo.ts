@@ -44,3 +44,14 @@ export function parseLatLonList(json: string): LatLon[] {
     return [];
   }
 }
+
+/** Ray-casting point-in-polygon on [lat, lon] pairs. */
+export function pointInPolygon(p: LatLon, poly: LatLon[]): boolean {
+  let inside = false;
+  for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
+    const [yi, xi] = poly[i];
+    const [yj, xj] = poly[j];
+    if (yi > p[0] !== yj > p[0] && p[1] < ((xj - xi) * (p[0] - yi)) / (yj - yi) + xi) inside = !inside;
+  }
+  return inside;
+}

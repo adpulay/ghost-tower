@@ -9,7 +9,22 @@
     "verbatimModuleSyntax": true,
     "erasableSyntaxOnly": true,
     "skipLibCheck": true,
-    "types": ["node"]
+    "types": [
+      "node"
+    ]
   },
-  "include": ["spacetime/src", "spacetime/test", "spacetime/bindings", "sim/src", "sim/test", "eval/src", "eval/test", "web/src/patrol/patrolModel.ts", "web/src/patrol/patrolModel.test.ts"]
+  "include": [
+    "spacetime/src",
+    "spacetime/test",
+    "spacetime/bindings",
+    "sim/src",
+    "sim/test",
+    "eval/src",
+    "eval/test",
+    "web/src/patrol/patrolModel.ts",
+    "web/src/patrol/patrolModel.test.ts",
+    "web/src/spacetime/liveCore.ts",
+    "web/src/spacetime/liveCore.test.ts",
+    "web/src/spacetime/types.ts"
+  ]
 }
