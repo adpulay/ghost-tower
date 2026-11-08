@@ -4,6 +4,7 @@ import android.content.Context
 import android.os.Handler
 import android.os.Looper
 import android.telephony.TelephonyManager
+import android.util.Log
 import java.security.MessageDigest
 import java.util.concurrent.Executors
 
@@ -25,6 +26,8 @@ object Pipeline {
     @Volatile private var lastDropEndMs = 0L
     @Volatile private var lastDropSecs = 0f
     @Volatile private var smsHandledForDrop = false
+    /** Set by fireDebug: the drop and the text are simulated, so report from the demo pin. */
+    @Volatile private var simulatedHit = false
     private var noSmsReport: Runnable? = null
 
     @Volatile var currentNetworkType: Int = TelephonyManager.NETWORK_TYPE_UNKNOWN
@@ -113,9 +116,15 @@ object Pipeline {
     }
 
     private fun report(secs: Float, score: Float, brand: String, urlHash: String, fallbackNotify: Boolean) {
-        val (lat, lon) = Reporter.coarseLocation(app)
+        val pinned = simulatedHit
+        simulatedHit = false
+        val (lat, lon) = if (pinned) Reporter.pinnedLocation() else Reporter.coarseLocation(app)
+        // Simulated hits follow the sim clock when it runs ahead (sim --speed 4x); real ones never do.
+        val wall = System.currentTimeMillis()
+        val ts = if (pinned) maxOf(wall, Reporter.simNowMs() ?: 0L) else wall
+        Log.i("GhostTower", "report pinned=$pinned lat=$lat lon=$lon score=$score secs=$secs ts=$ts simAhead=${ts - wall}ms")
         val ok = Reporter.send(
-            tsMs = System.currentTimeMillis(), lat = lat, lon = lon,
+            tsMs = ts, lat = lat, lon = lon,
             ratDrop = true, ratDropSecs = secs, smsScore = score,
             urlHash = urlHash, brand = brand, smsc = "unknown",
         )
@@ -127,7 +136,9 @@ object Pipeline {
     }
 
     /** Hidden debug trigger and demo mode both call this. Drives the real entry points. */
-    fun fireDebug() {
+    fun fireDebug(reason: String = "button") {
+        Log.i("GhostTower", "fireDebug reason=$reason")
+        simulatedHit = true
         val now = System.currentTimeMillis()
         onNetworkType(TelephonyManager.NETWORK_TYPE_EDGE, now)
         main.postDelayed({

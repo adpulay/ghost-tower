@@ -49,7 +49,7 @@ class MainActivity : Activity() {
             text = "Ghost Tower Sensor"
             textSize = 26f
             // Hidden debug trigger: long-press the title.
-            setOnLongClickListener { Pipeline.fireDebug(); true }
+            setOnLongClickListener { Pipeline.fireDebug("title long-press"); true }
         }
         root.addView(title)
 

@@ -9,10 +9,15 @@ import java.net.HttpURLConnection
 import java.net.URL
 import kotlin.math.roundToLong
 
-/** Pinned demo location (UTD) used when no real fix is available, and by demo mode. */
+/**
+ * Pinned demo location: on Campbell Rd ~300 m west of Coit Rd, on the demo-01 route just before
+ * the blaster turns north. Demo mode fires when the simulated track comes within
+ * TRIGGER_RADIUS_M, and debug/demo reports use this point so they land in the simulated
+ * blaster's cluster (recluster joins events within 800 m). Also the fallback when no real fix.
+ */
 object Demo {
-    const val LAT = 32.9858
-    const val LON = -96.7501
+    const val LAT = 32.9859
+    const val LON = -96.7712
     const val TRIGGER_RADIUS_M = 500.0
 }
 
@@ -50,6 +55,9 @@ object ScoreClient {
 object Reporter {
     private fun coarsen(v: Double) = (v * 1000).roundToLong() / 1000.0
 
+    /** The demo pin, coarsened like any report. Used for simulated (debug/demo) hits. */
+    fun pinnedLocation(): Pair<Double, Double> = coarsen(Demo.LAT) to coarsen(Demo.LON)
+
     @SuppressLint("MissingPermission")
     fun coarseLocation(ctx: Context): Pair<Double, Double> {
         try {
@@ -73,6 +81,20 @@ object Reporter {
         post(url, args.toString()).first in 200..299
     } catch (e: Exception) {
         false
+    }
+
+    /**
+     * The sim's clock (dev_config.sim_now_ms), or null if unreachable. A sim run at --speed 4x
+     * stamps its events ahead of the wall clock; demo reports use this so they land inside
+     * recluster's 120 s window and join the simulated track.
+     */
+    fun simNowMs(): Long? = try {
+        val url = "${BuildConfig.SPACETIME_URI}/v1/database/${BuildConfig.SPACETIME_DB}/sql"
+        val (code, body) = post(url, "SELECT sim_now_ms FROM dev_config")
+        if (code !in 200..299) null
+        else JSONArray(body).getJSONObject(0).getJSONArray("rows").optJSONArray(0)?.optLong(0)
+    } catch (e: Exception) {
+        null
     }
 
     /** Active track positions for demo mode: list of (lat, lon) where status == "active". */
