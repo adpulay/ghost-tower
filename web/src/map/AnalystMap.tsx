@@ -1,9 +1,9 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import L from "leaflet";
-import { parseLatLonList, pointInPolygon, type LatLon } from "../spacetime/geo";
+import { parseLatLonList, type LatLon } from "../spacetime/geo";
 import { useTables } from "../spacetime/SpacetimeContext";
 import { hostileSvg, interceptSvg } from "../shell/symbols";
-import { focusCampaign, focusTrack } from "../spacetime/focusTrack";
+import { focusTrack } from "../spacetime/focusTrack";
 
 const CENTER: LatLon = [32.9905, -96.7545]; // UTD / Campbell Rd, Richardson
 const EVENT_WINDOW_MS = 120_000; // matches the recluster window
@@ -24,7 +24,8 @@ const interceptIcon = L.divIcon({
   iconAnchor: [19, 19],
 });
 
-const ALERT_ZONE = "#f2b705";
+const ALERT_ZONE = "#c99400";
+const ALERT_FILL = "#f2b705";
 const EVENT = "#f08a24";
 
 export function AnalystMap() {
@@ -96,11 +97,11 @@ export function AnalystMap() {
       L.polygon(parseLatLonList(alert.zone_json), {
         color: ALERT_ZONE,
         weight: flashing ? 3 : 2,
-        fillColor: ALERT_ZONE,
-        fillOpacity: flashing ? 0.3 : 0.12,
+        fillColor: ALERT_FILL,
+        fillOpacity: flashing ? 0.35 : 0.18,
         className: flashing ? "zone-flash" : "",
       })
-        .bindTooltip(`Alert zone: ${alert.recipients} phones warned`)
+        .bindTooltip(`${alert.recipients} phones in this area were warned`)
         .addTo(layer);
     }
 
@@ -108,19 +109,19 @@ export function AnalystMap() {
     for (const p of tables.prediction) {
       const path = parseLatLonList(p.path_json);
       if (path.length > 1) {
-        // White casing under a dark dashed core so the path reads on both light map tiles and projectors.
+        // White casing under a blue dashed core so the path reads on the grey basemap and on projectors.
         L.polyline(path, { color: "#ffffff", weight: 9, opacity: 0.95 }).addTo(layer);
-        L.polyline(path, { color: "#1e3a8a", weight: 4, dashArray: "10 8" }).addTo(layer);
+        L.polyline(path, { color: "#1257c7", weight: 4, dashArray: "10 8" }).addTo(layer);
       }
       L.marker([p.intercept_lat, p.intercept_lon], { icon: interceptIcon })
-        .bindTooltip(`Intercept point, ETA ${p.eta_s} s at prediction`)
+        .bindTooltip("Where police can meet it")
         .addTo(layer);
     }
 
     // Grey dots: simulated phones (mock source only; there is no phone table).
     for (const ph of tables.mock_phones) {
       L.circleMarker([ph.lat, ph.lon], {
-        radius: 3.5, stroke: false, fillColor: "#8396ae", fillOpacity: 0.55,
+        radius: 3.5, stroke: false, fillColor: "#9aa4b2", fillOpacity: 0.7,
       }).addTo(layer);
     }
 
@@ -130,9 +131,9 @@ export function AnalystMap() {
       if (age > EVENT_WINDOW_MS || age < -5000) continue;
       const fade = Math.max(0.1, 1 - age / EVENT_WINDOW_MS);
       L.circleMarker([e.lat, e.lon], {
-        radius: 6, color: "#08111e", weight: 1.5, fillColor: EVENT, fillOpacity: fade, opacity: fade,
+        radius: 6, color: "#ffffff", weight: 1.5, fillColor: EVENT, fillOpacity: fade, opacity: fade,
       })
-        .bindTooltip(`${e.brand || "Unbranded"} report, fusion ${e.fusion_score.toFixed(2)}, from ${e.source}`)
+        .bindTooltip(`Scam text${e.brand ? ` pretending to be ${e.brand}` : ""}, ${Math.max(0, Math.round(age / 1000))} s ago`)
         .addTo(layer);
     }
 
@@ -163,62 +164,48 @@ export function AnalystMap() {
       trackMarkerRef.current = L.marker([t.lat, t.lon], { icon: trackIcon, zIndexOffset: 1000 }).addTo(map);
     }
     trackMarkerRef.current.bindTooltip(
-      `Track ${t.id}, ${t.status}, ${(t.confidence * 100).toFixed(0)}% confidence`,
+      t.status === "active" ? "Fake tower, best guess of where it is" : "Possible fake tower",
     );
     // Keep the blaster on screen: the real route can start well outside the default view, and the
-    // stat tiles cover the map edges, so recentre once it leaves the middle 60% of the view.
+    // legend covers a map corner, so recentre once it leaves the middle 60% of the view.
     if (Date.now() - userMovedAtRef.current > USER_MOVED_HOLD_MS && !map.getBounds().pad(-0.2).contains([t.lat, t.lon])) {
       map.panTo([t.lat, t.lon], { animate: true, duration: 1 });
     }
   }, [tables.track]);
 
-  const live = tables.anomaly_event.filter((e) => now - e.ts_ms <= EVENT_WINDOW_MS).length;
-  // There are no phone ids in the schema, so "hit after warning" counts distinct reports that land
-  // inside an alert zone after that alert was sent.
-  const hitAfterWarning = useMemo(() => {
-    const hit = new Set<number>();
-    for (const a of tables.alert) {
-      const zone = parseLatLonList(a.zone_json);
-      if (zone.length < 3) continue;
-      for (const e of tables.anomaly_event) {
-        if (e.ts_ms > a.sent_ms && pointInPolygon([e.lat, e.lon], zone)) hit.add(e.id);
-      }
-    }
-    return hit.size;
-  }, [tables.alert, tables.anomaly_event]);
-  const warned = tables.alert.reduce((s, a) => s + a.recipients, 0);
-  const track = focusTrack(tables.track);
-  const campaign = focusCampaign(track, tables.campaign);
+  const focused = focusTrack(tables.track);
+  const showTower = () => {
+    const m = trackMarkerRef.current;
+    if (!m || !mapRef.current) return;
+    userMovedAtRef.current = 0;
+    mapRef.current.setView(m.getLatLng(), Math.max(mapRef.current.getZoom(), 15), { animate: true });
+  };
+  const canShow = !!focused && (focused.status === "active" || focused.status === "candidate");
 
   return (
     <div className="map-wrap">
-      <div ref={hostRef} className="map" />
+      <div className="map-host">
+        <div ref={hostRef} className="map" />
+        {status === "error" && (
+          <div className="map-error" role="alert" title={detail}>
+            Lost connection to live reports. The map will update again once it reconnects.
+          </div>
+        )}
 
-      <div className="hud hud-top">
-        <div className="title">GHOST TOWER</div>
-        <div className={`pill pill-${status}`}>
-          {status === "connected" ? "● live" : status}
-        </div>
-        {mode === "mock" && <div className="pill pill-sim">simulated data</div>}
-        {debug && <div className="pill pill-debug">debug: ground truth visible</div>}
-        {status === "error" && <div className="error">{detail}</div>}
-      </div>
+        {canShow && (
+          <button type="button" className="map-find" onClick={showTower}>
+            Show the fake tower
+          </button>
+        )}
 
-      <div className="hud hud-stats">
-        <div><b>{live}</b><span>reports (120 s)</span></div>
-        <div><b>{warned}</b><span>phones warned</span></div>
-        <div><b>{hitAfterWarning}</b><span>hit after warning</span></div>
-        <div><b>{track ? track.status : "—"}</b><span>track</span></div>
-        <div><b>{campaign ? campaign.brand : "—"}</b><span>campaign</span></div>
-      </div>
-
-      <div className="hud hud-legend">
-        <div><i className="dot grey" /> phones {mode === "mock" && <em>(simulated)</em>}</div>
-        <div><i className="dot orange" /> anomaly events</div>
-        <div><i className="dot red" /> blaster estimate</div>
-        <div><i className="dash" /> predicted path</div>
-        <div><i className="dot zone" /> alert zone</div>
-        <div><i className="star">★</i> intercept point</div>
+        <ul className="legend" aria-label="Map key">
+          <li><span className="key" dangerouslySetInnerHTML={{ __html: hostileSvg(18) }} />Fake tower</li>
+          <li><span className="key"><i className="key-dot key-event" /></span>Scam text received</li>
+          <li><span className="key"><i className="key-path" /></span>Where it's heading</li>
+          <li><span className="key"><i className="key-zone" /></span>Phones warned here</li>
+          <li><span className="key" dangerouslySetInnerHTML={{ __html: interceptSvg(20) }} />Police meet point</li>
+          {mode === "mock" && <li><span className="key"><i className="key-dot key-phone" /></span>Phones (demo)</li>}
+        </ul>
       </div>
     </div>
   );

@@ -32,3 +32,20 @@ export function towerMark(size: number): string {
     <path d="M4 25 24 3"/>
   </svg>`;
 }
+
+const SHIELD_FILL = { safe: "#e20074", caution: "#f2b705", danger: "#ffffff", quiet: "#8a93a1" } as const;
+const SHIELD_INK = { safe: "#ffffff", caution: "#1f1600", danger: "#d42a3a", quiet: "#ffffff" } as const;
+
+/** Status shield for the console header: a check when all clear, "!" when there is something to look at. */
+export function shieldSvg(tone: keyof typeof SHIELD_FILL, size: number): string {
+  const ink = SHIELD_INK[tone];
+  const glyph = tone === "safe"
+    ? `<path d="M15 25.5l6 6 12-13" fill="none" stroke="${ink}" stroke-width="4.2" stroke-linecap="round" stroke-linejoin="round"/>`
+    : tone === "quiet"
+      ? `<path d="M15 25h18" stroke="${ink}" stroke-width="4.2" stroke-linecap="round"/>`
+      : `<path d="M24 14v13" stroke="${ink}" stroke-width="4.6" stroke-linecap="round"/><circle cx="24" cy="34" r="2.8" fill="${ink}"/>`;
+  return `<svg viewBox="0 0 48 52" width="${size}" height="${Math.round(size * 52 / 48)}" aria-hidden="true">
+    <path d="M24 2 44 9v15c0 13-8.6 22.4-20 26C12.6 46.4 4 37 4 24V9Z" fill="${SHIELD_FILL[tone]}"/>
+    ${glyph}
+  </svg>`;
+}
