@@ -1,25 +1,26 @@
-/* Ghost Tower trace panel. Every class is prefixed `gt-trace` so it can't collide with the
-   shell. Override the --gt-* variables from the shell to match its theme. */
+/* Ghost Tower agent log. Every class is prefixed `gt-trace` so it can't collide with the
+   shell. Reads like a dispatch log: time, code, entry. Override the --gt-* variables from
+   the host to re-theme. */
 
 .gt-trace {
-  --gt-bg: #ffffff;
-  --gt-fg: #1b1f24;
-  --gt-muted: #6a7380;
-  --gt-border: #e3e6ea;
-  --gt-row-alt: #f7f8fa;
-  --gt-plan: #2f6fde;
-  --gt-tool: #6a7380;
-  --gt-result: #1b1f24;
-  --gt-replan: #c25e00;
-  --gt-replan-bg: #fff3e5;
-  --gt-summary: #1f8a4c;
-  --gt-sim-bg: #eef0f3;
-  --gt-sim-fg: #5b6470;
-  --gt-active: #c62828;
-  --gt-candidate: #b38600;
-  --gt-dormant: #6a7380;
-  --gt-font: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
-  --gt-mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  --gt-bg: #0c1828;
+  --gt-fg: #e8edf4;
+  --gt-muted: #8396ae;
+  --gt-border: #23395a;
+  --gt-row-alt: #152a43;
+  --gt-plan: #e8edf4;
+  --gt-tool: #8396ae;
+  --gt-result: #b9c5d6;
+  --gt-replan: #f2b705;
+  --gt-replan-ink: #1a1400;
+  --gt-summary: #e8edf4;
+  --gt-sim-fg: #f2b705;
+  --gt-active: #e5383b;
+  --gt-candidate: #f2b705;
+  --gt-dormant: #8396ae;
+  --gt-font: "Barlow", "Segoe UI", system-ui, sans-serif;
+  --gt-cond: "Barlow Condensed", "Arial Narrow", sans-serif;
+  --gt-mono: ui-monospace, "Cascadia Mono", Consolas, monospace;
 
   position: relative;
   display: flex;
@@ -29,30 +30,7 @@
   background: var(--gt-bg);
   color: var(--gt-fg);
   font: 15px/1.4 var(--gt-font);
-  border: 1px solid var(--gt-border);
-  border-radius: 10px;
   overflow: hidden;
-}
-
-@media (prefers-color-scheme: dark) {
-  .gt-trace {
-    --gt-bg: #14171c;
-    --gt-fg: #e6e9ee;
-    --gt-muted: #9099a6;
-    --gt-border: #2a2f37;
-    --gt-row-alt: #1a1e24;
-    --gt-plan: #6ea2ff;
-    --gt-tool: #9099a6;
-    --gt-result: #e6e9ee;
-    --gt-replan: #ffa94d;
-    --gt-replan-bg: #3a2610;
-    --gt-summary: #4cc985;
-    --gt-sim-bg: #2a2f37;
-    --gt-sim-fg: #b7bfca;
-    --gt-active: #ff6b6b;
-    --gt-candidate: #f2c94c;
-    --gt-dormant: #9099a6;
-  }
 }
 
 .gt-trace__header {
@@ -61,22 +39,20 @@
   align-items: center;
   justify-content: space-between;
   gap: 6px 12px;
-  padding: 10px 14px;
+  padding: 10px 16px;
   border-bottom: 1px solid var(--gt-border);
 }
 .gt-trace__title { display: flex; align-items: baseline; gap: 10px; }
-.gt-trace__brand { font-size: 12px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--gt-muted); }
-.gt-trace__track { font-weight: 700; font-size: 17px; }
+.gt-trace__brand { font-size: 13px; color: var(--gt-muted); }
+.gt-trace__track { font: 600 19px var(--gt-cond); }
 .gt-trace__muted { color: var(--gt-muted); font-weight: 500; }
 .gt-trace__meta { display: flex; align-items: center; gap: 10px; font-size: 13px; color: var(--gt-muted); }
 .gt-trace__conf strong { color: var(--gt-fg); font-variant-numeric: tabular-nums; }
 .gt-trace__status {
-  padding: 2px 8px;
-  border-radius: 999px;
-  font-size: 12px;
-  font-weight: 700;
+  padding: 2px 7px 1px;
+  font: 700 13px/1.1 var(--gt-cond);
   text-transform: uppercase;
-  letter-spacing: 0.04em;
+  letter-spacing: 0.08em;
   border: 1px solid currentColor;
 }
 .gt-trace__status--active { color: var(--gt-active); }
@@ -87,100 +63,84 @@
 .gt-trace__list {
   flex: 1;
   margin: 0;
-  padding: 6px 0;
+  padding: 0 0 12px;
   list-style: none;
   overflow-y: auto;
   overscroll-behavior: contain;
+  border-top: 1px solid var(--gt-border);
 }
-.gt-trace__empty { padding: 16px 14px; color: var(--gt-muted); font-style: italic; }
+.gt-trace__empty { padding: 14px 20px; color: var(--gt-muted); }
 
 .gt-trace__row {
   display: grid;
-  grid-template-columns: 22px 1fr auto;
-  align-items: start;
-  gap: 8px;
-  padding: 5px 14px;
-  border-left: 3px solid transparent;
+  grid-template-columns: 58px 50px 1fr;
+  align-items: baseline;
+  gap: 10px;
+  padding: 6px 20px;
 }
-.gt-trace__icon { text-align: center; color: var(--gt-muted); font-weight: 700; }
+.gt-trace__time { font: 12px var(--gt-mono); color: var(--gt-muted); font-variant-numeric: tabular-nums; }
+.gt-trace__icon { font: 600 13px/1 var(--gt-cond); color: var(--gt-muted); letter-spacing: .02em; }
 .gt-trace__body { min-width: 0; overflow-wrap: anywhere; }
-.gt-trace__time { font: 12px var(--gt-mono); color: var(--gt-muted); padding-top: 2px; font-variant-numeric: tabular-nums; }
 
-.gt-trace__row--plan { margin-top: 6px; }
-.gt-trace__row--plan .gt-trace__icon,
+/* A plan opens a block of work: give it air and weight. */
+.gt-trace__row--plan { margin-top: 8px; padding-top: 10px; border-top: 1px solid var(--gt-border); }
+.gt-trace__row:first-child.gt-trace__row--plan { margin-top: 0; border-top: 0; }
 .gt-trace__row--plan .gt-trace__text { color: var(--gt-plan); font-weight: 600; }
 
+.gt-trace__row--tool_call { padding-top: 3px; padding-bottom: 1px; }
 .gt-trace__row--tool_call .gt-trace__text { font: 13px/1.4 var(--gt-mono); color: var(--gt-tool); }
-
-.gt-trace__row--tool_result { padding-left: 28px; }
+.gt-trace__row--tool_result { padding-top: 1px; }
 .gt-trace__row--tool_result .gt-trace__text { color: var(--gt-result); }
 
-.gt-trace__row--summary { margin-bottom: 6px; }
 .gt-trace__row--summary .gt-trace__icon,
 .gt-trace__row--summary .gt-trace__text { color: var(--gt-summary); font-weight: 600; }
 
-/* The moment judges should notice. */
+/* The moment judges should notice: a full caution band, not a side stripe. */
 .gt-trace__row--replan {
   margin: 8px 0;
-  padding-top: 9px;
-  padding-bottom: 9px;
-  background: var(--gt-replan-bg);
-  border-left-color: var(--gt-replan);
-}
-.gt-trace__row--replan .gt-trace__icon,
-.gt-trace__row--replan .gt-trace__text { color: var(--gt-replan); font-weight: 700; font-size: 16px; }
-.gt-trace__badge {
-  display: inline-block;
-  margin-right: 8px;
-  padding: 1px 7px;
-  border-radius: 4px;
+  padding-top: 10px;
+  padding-bottom: 10px;
   background: var(--gt-replan);
-  color: var(--gt-bg);
-  font-size: 11px;
-  font-weight: 800;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-  vertical-align: 2px;
 }
-.gt-trace__row--replan.gt-trace__row--fresh { animation: gt-trace-pulse 1.2s ease-out 2; }
+.gt-trace__row--replan .gt-trace__time,
+.gt-trace__row--replan .gt-trace__icon,
+.gt-trace__row--replan .gt-trace__text { color: var(--gt-replan-ink); }
+.gt-trace__row--replan .gt-trace__text { font-weight: 700; font-size: 16px; }
+.gt-trace__row--replan .gt-trace__icon { font-weight: 700; }
+.gt-trace__row--replan.gt-trace__row--fresh { animation: gt-trace-pulse 0.9s ease-out 2; }
 
 .gt-trace__sim {
-  display: inline-block;
-  margin-left: 6px;
-  padding: 0 6px;
-  border-radius: 4px;
-  background: var(--gt-sim-bg);
-  color: var(--gt-sim-fg);
-  font-size: 11px;
+  margin-left: 8px;
+  font-size: 12px;
   font-weight: 600;
-  letter-spacing: 0.03em;
-  vertical-align: 1px;
+  color: var(--gt-sim-fg);
+  white-space: nowrap;
 }
+.gt-trace__sim::before { content: "("; }
+.gt-trace__sim::after { content: ")"; }
 
 .gt-trace__row--fresh:not(.gt-trace__row--replan) { animation: gt-trace-in 0.6s ease-out; }
 
 .gt-trace__jump {
   position: absolute;
-  right: 14px;
+  right: 16px;
   bottom: 12px;
-  padding: 5px 12px;
+  padding: 6px 12px;
   border: 1px solid var(--gt-border);
-  border-radius: 999px;
-  background: var(--gt-bg);
+  background: var(--gt-row-alt);
   color: var(--gt-fg);
   font: 600 13px var(--gt-font);
   cursor: pointer;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
 }
+.gt-trace__jump:hover { border-color: var(--gt-fg); }
 
 @keyframes gt-trace-in {
   from { background: var(--gt-row-alt); }
   to { background: transparent; }
 }
 @keyframes gt-trace-pulse {
-  0% { box-shadow: inset 0 0 0 0 var(--gt-replan); }
-  40% { box-shadow: inset 0 0 0 2px var(--gt-replan); }
-  100% { box-shadow: inset 0 0 0 0 var(--gt-replan); }
+  0%, 100% { filter: none; }
+  50% { filter: brightness(1.18); }
 }
 @media (prefers-reduced-motion: reduce) {
   .gt-trace__row--fresh { animation: none !important; }

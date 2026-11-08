@@ -2,23 +2,27 @@ import { useEffect, useRef, useState } from "react";
 import L from "leaflet";
 import { parseLatLonList, type LatLon } from "../spacetime/geo";
 import { useTables } from "../spacetime/SpacetimeContext";
+import { FRIENDLY, hostileSvg, interceptSvg } from "../shell/symbols";
 
-const CENTER: LatLon = [32.9858, -96.7501]; // UTD / Campbell Rd, Richardson
+const CENTER: LatLon = [32.9905, -96.7545]; // UTD / Campbell Rd, Richardson
 const EVENT_WINDOW_MS = 120_000; // matches the recluster window
 const FLASH_MS = 4_000;
 
 const trackIcon = L.divIcon({
-  className: "",
-  html: '<div class="blaster-marker"></div>',
-  iconSize: [26, 26],
-  iconAnchor: [13, 13],
+  className: "sym sym-hostile",
+  html: hostileSvg(32),
+  iconSize: [32, 32],
+  iconAnchor: [16, 16],
 });
 const interceptIcon = L.divIcon({
-  className: "intercept-icon",
-  html: "★",
-  iconSize: [34, 34],
-  iconAnchor: [17, 17],
+  className: "sym",
+  html: interceptSvg(38),
+  iconSize: [38, 38],
+  iconAnchor: [19, 19],
 });
+
+const ALERT_ZONE = "#f2b705";
+const EVENT = "#f08a24";
 
 export function AnalystMap() {
   const { tables, status, detail, mode, debug } = useTables();
@@ -38,7 +42,7 @@ export function AnalystMap() {
   }, []);
 
   useEffect(() => {
-    const map = L.map(hostRef.current!, { zoomControl: true }).setView(CENTER, 14);
+    const map = L.map(hostRef.current!, { zoomControl: true }).setView(CENTER, 15);
     L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {
       maxZoom: 19,
       attribution: "&copy; OpenStreetMap contributors",
@@ -82,13 +86,13 @@ export function AnalystMap() {
     if (alert) {
       const flashing = now - lastAlertRef.current.at < FLASH_MS;
       L.polygon(parseLatLonList(alert.zone_json), {
-        color: "#f5c542",
-        weight: flashing ? 4 : 2,
-        fillColor: "#f5c542",
-        fillOpacity: flashing ? 0.4 : 0.18,
+        color: ALERT_ZONE,
+        weight: flashing ? 3 : 2,
+        fillColor: ALERT_ZONE,
+        fillOpacity: flashing ? 0.3 : 0.12,
         className: flashing ? "zone-flash" : "",
       })
-        .bindTooltip(`Alert zone · ${alert.recipients} phones warned`)
+        .bindTooltip(`Alert zone: ${alert.recipients} phones warned`)
         .addTo(layer);
     }
 
@@ -96,17 +100,18 @@ export function AnalystMap() {
     for (const p of tables.prediction) {
       const path = parseLatLonList(p.path_json);
       if (path.length > 1) {
-        L.polyline(path, { color: "#ffffff", weight: 4, dashArray: "10 10", opacity: 0.9 }).addTo(layer);
+        L.polyline(path, { color: "#08111e", weight: 7, opacity: 0.7 }).addTo(layer);
+        L.polyline(path, { color: FRIENDLY, weight: 3, dashArray: "2 9", lineCap: "square", opacity: 1 }).addTo(layer);
       }
       L.marker([p.intercept_lat, p.intercept_lon], { icon: interceptIcon })
-        .bindTooltip(`Intercept · ETA ${p.eta_s}s`)
+        .bindTooltip(`Intercept point, ETA ${p.eta_s} s at prediction`)
         .addTo(layer);
     }
 
     // Grey dots: simulated phones (mock source only; there is no phone table).
     for (const ph of tables.mock_phones) {
       L.circleMarker([ph.lat, ph.lon], {
-        radius: 5, color: "#6b7280", weight: 1, fillColor: "#9ca3af", fillOpacity: 0.7,
+        radius: 3.5, stroke: false, fillColor: "#8396ae", fillOpacity: 0.55,
       }).addTo(layer);
     }
 
@@ -116,9 +121,9 @@ export function AnalystMap() {
       if (age > EVENT_WINDOW_MS || age < -5000) continue;
       const fade = Math.max(0.1, 1 - age / EVENT_WINDOW_MS);
       L.circleMarker([e.lat, e.lon], {
-        radius: 7, color: "#c2410c", weight: 1, fillColor: "#fb923c", fillOpacity: fade, opacity: fade,
+        radius: 6, color: "#08111e", weight: 1.5, fillColor: EVENT, fillOpacity: fade, opacity: fade,
       })
-        .bindTooltip(`${e.brand || "event"} · fusion ${e.fusion_score.toFixed(2)} · ${e.source}`)
+        .bindTooltip(`${e.brand || "Unbranded"} report, fusion ${e.fusion_score.toFixed(2)}, from ${e.source}`)
         .addTo(layer);
     }
 
@@ -149,44 +154,41 @@ export function AnalystMap() {
       trackMarkerRef.current = L.marker([t.lat, t.lon], { icon: trackIcon, zIndexOffset: 1000 }).addTo(map);
     }
     trackMarkerRef.current.bindTooltip(
-      `Track ${t.id} · ${t.status} · conf ${(t.confidence * 100).toFixed(0)}% · ${t.speed_mps.toFixed(0)} m/s`,
+      `Track ${t.id}, ${t.status}, ${(t.confidence * 100).toFixed(0)}% confidence`,
     );
   }, [tables.track]);
-
-  const live = tables.anomaly_event.filter((e) => now - e.ts_ms <= EVENT_WINDOW_MS).length;
-  const warned = tables.alert.reduce((s, a) => s + a.recipients, 0);
-  const track = tables.track[tables.track.length - 1];
-  const campaign = tables.campaign[tables.campaign.length - 1];
 
   return (
     <div className="map-wrap">
       <div ref={hostRef} className="map" />
+      {status === "error" && <div className="feed-banner" role="alert">Feed down: {detail}</div>}
 
-      <div className="hud hud-top">
-        <div className="title">GHOST TOWER</div>
-        <div className={`pill pill-${status}`}>
-          {status === "connected" ? "● live" : status}
-        </div>
-        {mode === "mock" && <div className="pill pill-sim">simulated data</div>}
-        {debug && <div className="pill pill-debug">debug: ground truth visible</div>}
-        {status === "error" && <div className="error">{detail}</div>}
-      </div>
-
-      <div className="hud hud-stats">
-        <div><b>{live}</b><span>reports (120 s)</span></div>
-        <div><b>{warned}</b><span>phones warned</span></div>
-        <div><b>{track ? track.status : "—"}</b><span>track</span></div>
-        <div><b>{campaign ? campaign.brand : "—"}</b><span>campaign</span></div>
-      </div>
-
-      <div className="hud hud-legend">
-        <div><i className="dot grey" /> phones {mode === "mock" && <em>(simulated)</em>}</div>
-        <div><i className="dot orange" /> anomaly events</div>
-        <div><i className="dot red" /> blaster estimate</div>
-        <div><i className="dash" /> predicted path</div>
-        <div><i className="dot zone" /> alert zone</div>
-        <div><i className="star">★</i> intercept point</div>
-      </div>
+      <ul className="legend" aria-label="Map key">
+        <li>
+          <span dangerouslySetInnerHTML={{ __html: hostileSvg(18) }} />
+          Blaster, estimated position
+        </li>
+        <li>
+          <svg viewBox="0 0 18 18"><circle cx="9" cy="9" r="5" fill={EVENT} stroke="#08111e" strokeWidth="1.5" /></svg>
+          Phone report, fades over 2 min
+        </li>
+        <li>
+          <svg viewBox="0 0 18 18"><path d="M1 9h16" stroke={FRIENDLY} strokeWidth="3" strokeDasharray="2 4" /></svg>
+          Predicted route
+        </li>
+        <li>
+          <span dangerouslySetInnerHTML={{ __html: interceptSvg(18) }} />
+          Intercept point
+        </li>
+        <li>
+          <svg viewBox="0 0 18 18"><rect x="2" y="3" width="14" height="12" fill={ALERT_ZONE} fillOpacity=".25" stroke={ALERT_ZONE} strokeWidth="2" /></svg>
+          Warning sent to phones here
+        </li>
+        <li>
+          <svg viewBox="0 0 18 18"><circle cx="9" cy="9" r="3.5" fill="#8396ae" fillOpacity=".8" /></svg>
+          Phones {mode === "mock" && <em>simulated</em>}
+        </li>
+      </ul>
     </div>
   );
 }
