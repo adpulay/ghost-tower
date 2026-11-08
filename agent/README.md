@@ -43,7 +43,7 @@ vllm serve --model "nvidia/NVIDIA-Nemotron-Nano-3-30B-A3B-FP8" --dtype auto --tr
 | goes `dormant` | nothing to do | `summary` "Track dormant, watching for campaign reappearance" |
 
 Guardrails:
-- At most 8 model steps per run, a 20 s timeout per model call, and one retry. Failures write a
+- At most 12 model steps per run (a model that stops before its mode's required tools are done gets up to 2 reminders; a summary claiming an unsent warning is replaced), a 20 s timeout per model call, and one retry. Failures write a
   trace line and retry 10 s later; they don't crash the service.
 - Write tools are pinned to the track under investigation. **No tool can write
   `track.confidence` or `track.status`.** The final summary is checked for claims that the

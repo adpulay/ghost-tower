@@ -34,7 +34,24 @@ export interface RunResult {
   predictionSpeed?: number;
   errors: string[];
   aborted?: "step_cap" | "model_error";
+  /** Times the model stopped early and was reminded of the missing steps. */
+  nudges?: number;
+  /** The model's summary claimed a warning this run never sent, so it was replaced. */
+  claimedUnsentWarning?: boolean;
 }
+
+/** The tools each mode must call before the run counts as done (mirrors prompts/system.md). */
+export const REQUIRED_TOOLS: Record<Mode, readonly string[]> = {
+  investigate: ["rdap_domain_age", "agent_link_campaign", "carrier_smsc_lookup", "predict_route", "agent_set_prediction", "draft_report", "send_warning", "agent_record_alert"],
+  replan: ["predict_route", "agent_set_prediction", "draft_report", "send_warning", "agent_record_alert"],
+  refresh: ["predict_route", "agent_set_prediction"],
+};
+
+/** How many times a run reminds the model of missing steps when it stops early. */
+const MAX_NUDGES = 2;
+
+/** A summary that says people were warned, for runs that never called send_warning. */
+const WARNING_CLAIM = /\b(warn(ed|ing)?|alert(ed)?|broadcast|notified|phones)\b/i;
 
 const here = dirname(fileURLToPath(import.meta.url));
 export const SYSTEM_PROMPT = readFileSync(resolve(here, "../prompts/system.md"), "utf8");
@@ -50,7 +67,8 @@ export class Investigator {
   private systemPrompt: string;
 
   constructor(private world: World, private model: ChatModel, opts: InvestigatorOptions = {}) {
-    this.maxSteps = opts.maxSteps ?? 8;
+    // 12: a model that calls one tool per turn needs 9 turns for a full investigation.
+    this.maxSteps = opts.maxSteps ?? 12;
     this.now = opts.now ?? Date.now;
     this.log = opts.log;
     this.systemPrompt = opts.systemPrompt ?? SYSTEM_PROMPT;
@@ -76,6 +94,7 @@ export class Investigator {
     const memory: InvestigationMemory = {};
     const toolCtx: ToolContext = { world: this.world, trackId: track.id, now: this.now, memory, log: this.log };
     const tools = openAiTools();
+    let nudges = 0;
 
     for (let step = 0; step < this.maxSteps; step++) {
       result.steps = step + 1;
@@ -93,6 +112,19 @@ export class Investigator {
       if (reply.content && claimsAuthority(reply.content)) result.claimedAuthority = true;
 
       if (reply.tool_calls.length === 0) {
+        // Real models sometimes stop after one or two tools. Remind them what the mode still needs.
+        const missing = REQUIRED_TOOLS[mode].filter((t) => !result.toolsCalled.includes(t));
+        if (missing.length && nudges < MAX_NUDGES) {
+          nudges++;
+          result.nudges = nudges;
+          this.log?.({ event: "nudge", trackId: track.id, mode, missing });
+          messages.push({ role: "assistant", content: reply.content ?? "" });
+          messages.push({
+            role: "user",
+            content: `Not done: MODE ${mode} still requires these tool calls, in this order: ${missing.join(", ")}. Call them now.`,
+          });
+          continue;
+        }
         result.finalText = reply.content;
         await this.writeSummary(track.id, reply.content, result);
         return result;
@@ -153,10 +185,14 @@ export class Investigator {
 
   private async writeSummary(trackId: number, text: string | null, result: RunResult) {
     let line = (text ?? "").trim();
+    // Don't let the summary say people were warned unless this run actually sent a warning.
+    if (line && WARNING_CLAIM.test(line) && !result.toolsCalled.includes("send_warning")) {
+      result.claimedUnsentWarning = true;
+      line = "";
+    }
     if (!line || result.claimedAuthority) {
       // Never broadcast an authority claim; fall back to an evidence-only line.
-      const used = [...new Set(result.toolsCalled)];
-      line = `Done: ${used.length} tools used (${used.slice(0, 4).join(", ")}${used.length > 4 ? ", …" : ""}).`;
+      line = actionsSummary(trackId, result.toolsCalled);
     }
     await writeTrace(this.world, trackId, "summary", clip(line));
   }
@@ -214,6 +250,21 @@ function userMessage(mode: Mode, ctx: ContextBlock, note?: string): string {
   ]
     .filter(Boolean)
     .join("\n");
+}
+
+/**
+ * Evidence-only summary from the tools that actually ran, for when the model's own line is empty
+ * or can't be used. Real models often end with an empty message after the last tool call.
+ */
+export function actionsSummary(trackId: number, toolsCalled: readonly string[]): string {
+  const has = (t: string) => toolsCalled.includes(t);
+  const done: string[] = [];
+  if (has("agent_link_campaign")) done.push("campaign linked");
+  else if (has("rdap_domain_age")) done.push("lure domain checked");
+  if (has("carrier_smsc_lookup")) done.push("carrier origin checked");
+  if (has("agent_set_prediction")) done.push("route predicted");
+  if (has("send_warning")) done.push("path warned");
+  return done.length ? `Track #${trackId}: ${done.join(", ")}.` : `Track #${trackId}: no actions completed.`;
 }
 
 function renderArgs(args: Record<string, unknown>): string {

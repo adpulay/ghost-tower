@@ -16,8 +16,8 @@ export class NemotronClient implements ChatModel {
     const body: Record<string, unknown> = {
       model: this.cfg.model,
       messages,
-      tools,
-      tool_choice: "auto",
+      // vLLM ≥0.31 rejects `tools: []`, so leave tools out entirely when there are none.
+      ...(tools.length ? { tools, tool_choice: "auto" } : {}),
       temperature: Number(process.env.NEMOTRON_TEMPERATURE ?? 0.2),
       max_tokens: Number(process.env.NEMOTRON_MAX_TOKENS ?? 2048),
     };
