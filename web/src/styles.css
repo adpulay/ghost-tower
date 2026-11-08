@@ -332,3 +332,98 @@ code { white-space: nowrap; font-family: var(--font-data); font-size: .85em; bac
   .status-title { font-size: 25px; }
   .legend { display: none; }
 }
+
+/* ---- Login gate (demo-only access wall) ---------------------------------- */
+
+.login {
+  position: relative;
+  min-height: 100%;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background:
+    radial-gradient(1200px 600px at 50% -10%, rgba(226, 0, 116, .22), transparent 60%),
+    var(--bg);
+}
+.login-brandband {
+  position: absolute;
+  inset: 0 0 auto 0;
+  height: 6px;
+  background: var(--brand);
+}
+.login-card {
+  position: relative;
+  width: 100%;
+  max-width: 400px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 14px;
+  padding: 44px 40px 40px;
+  background: var(--surface);
+  border: 1px solid var(--rule);
+  border-radius: 14px;
+  box-shadow: 0 24px 60px rgba(19, 19, 22, .14);
+}
+.login-mark {
+  display: grid;
+  place-items: center;
+  width: 64px;
+  height: 64px;
+  border-radius: 16px;
+  background: var(--brand);
+}
+.login-word {
+  margin: 2px 0 0;
+  font: 800 30px/1 var(--font);
+  letter-spacing: -.02em;
+}
+.login-sub {
+  margin: 0 0 8px;
+  color: var(--muted);
+  font: 500 15px/1.4 var(--font);
+  text-align: center;
+}
+.login-field {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.login-field span {
+  font: 600 14px var(--font);
+  color: var(--ink-2);
+}
+.login-field input {
+  width: 100%;
+  padding: 12px 14px;
+  font: 400 17px var(--font);
+  color: var(--ink);
+  background: var(--surface-2);
+  border: 1.5px solid var(--rule-strong);
+  border-radius: 10px;
+  transition: border-color 120ms var(--ease);
+}
+.login-field input:focus {
+  outline: none;
+  border-color: var(--brand);
+}
+.login-error {
+  width: 100%;
+  margin: 0;
+  color: var(--danger-ink);
+  font: 600 14px var(--font);
+}
+.login-submit {
+  width: 100%;
+  margin-top: 6px;
+  padding: 13px 16px;
+  font: 700 17px var(--font);
+  color: #fff;
+  background: var(--brand);
+  border: none;
+  border-radius: 999px;
+  cursor: pointer;
+  transition: background 120ms var(--ease);
+}
+.login-submit:hover { background: var(--brand-ink); }
