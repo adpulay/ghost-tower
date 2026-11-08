@@ -6,127 +6,98 @@ import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
-import android.os.Handler
-import android.os.Looper
 import android.view.View
-import android.widget.Button
-import android.widget.LinearLayout
-import android.widget.ScrollView
-import android.widget.TextView
 
-/** Programmatic UI so the app has no layout XML or AndroidX dependencies. */
+/** Hosts [AppUi]: the first-run permission screen, then the Scam Shield-style app. Detections pop up as an in-app alert. */
 class MainActivity : Activity() {
-    private lateinit var networkView: TextView
-    private lateinit var cellView: TextView
-    private lateinit var statusView: TextView
-    private lateinit var optIn: LinearLayout
-    private lateinit var home: LinearLayout
-    private lateinit var debugButton: Button
-    private val ui = Handler(Looper.getMainLooper())
-    private var radio: RadioInfo? = null
+    companion object {
+        const val EXTRA_ALERT_ID = "alert_id"
+    }
 
-    private val perms: Array<String> get() = buildList {
-        add(Manifest.permission.READ_PHONE_STATE)
-        add(Manifest.permission.ACCESS_COARSE_LOCATION)
-        if (Build.VERSION.SDK_INT >= 33) add(Manifest.permission.POST_NOTIFICATIONS)
-    }.toTypedArray()
+    private var ui: AppUi? = null
+    private val changed: () -> Unit = { ui?.onExternalChange() }
+
+    private val perms: Array<String>
+        get() = buildList {
+            add(Manifest.permission.READ_PHONE_STATE)
+            add(Manifest.permission.ACCESS_COARSE_LOCATION)
+            if (Build.VERSION.SDK_INT >= 33) add(Manifest.permission.POST_NOTIFICATIONS)
+        }.toTypedArray()
 
     private fun hasAll() = perms.all { checkSelfPermission(it) == PackageManager.PERMISSION_GRANTED }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         Pipeline.init(this)
-        radio = RadioInfo(this)
+        Ui.init(this)
+        build()
+    }
 
-        val root = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            setPadding(48, 96, 48, 48)
+    private fun build() {
+        val u = AppUi(this)
+        ui = u
+        if (hasAll()) {
+            systemBars(Ui.p.bg, Ui.p.card, lightIcons = !Ui.p.dark)
+            setContentView(u.root)
+            startForegroundService(Intent(this, SensorService::class.java))
+        } else {
+            systemBars(Ui.p.magenta, Ui.p.magenta, lightIcons = false)
+            setContentView(u.optInView { requestPermissions(perms, 1) })
         }
-        val title = TextView(this).apply {
-            text = "Ghost Tower Sensor"
-            textSize = 26f
-            // Hidden debug trigger: long-press the title.
-            setOnLongClickListener { Pipeline.fireDebug("title long-press"); true }
-        }
-        root.addView(title)
+    }
 
-        // One-screen opt-in.
-        optIn = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
-        optIn.addView(TextView(this).apply {
-            text = "Demo build. This app does not read your texts or calls."
-            textSize = 18f
-            setPadding(0, 32, 0, 32)
-        })
-        optIn.addView(TextView(this).apply {
-            text = "When the simulated fake tower drives past the demo spot, the app plays out a simulated 2G drop and a sample scam text, scores that sample text, and sends a report to the demo database: the score, the brand, a hash of the link's domain, and a fixed demo location. Nothing about you is sent. Phone and location permission are only used to show your phone's real network type and cell on the next screen."
-            textSize = 14f
-            setPadding(0, 0, 0, 32)
-        })
-        optIn.addView(Button(this).apply {
-            text = "Turn on sensor"
-            setOnClickListener { requestPermissions(perms, 1) }
-        })
-        root.addView(optIn)
-
-        // Home screen: the phone's real radio (display only) and the demo trigger.
-        home = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; visibility = View.GONE }
-        networkView = TextView(this).apply { textSize = 22f; setPadding(0, 32, 0, 8) }
-        cellView = TextView(this).apply { textSize = 16f; setPadding(0, 0, 0, 24) }
-        statusView = TextView(this).apply { textSize = 16f; text = Pipeline.lastStatus }
-        home.addView(TextView(this).apply { text = "Real network right now"; textSize = 14f })
-        home.addView(networkView)
-        home.addView(cellView)
-        home.addView(statusView)
-        home.addView(TextView(this).apply {
-            text = "Demo trigger is always on: the phone reacts when the simulated car passes. The 2G drop and the text are simulated."
-            textSize = 14f
-            setPadding(0, 48, 0, 16)
-        })
-        debugButton = Button(this).apply {
-            text = "Trigger the demo now (fake 2G drop + sample text)"
-            setOnClickListener { Pipeline.fireDebug() }
-        }
-        home.addView(debugButton)
-        root.addView(home)
-
-        setContentView(ScrollView(this).apply { addView(root) })
-        Pipeline.statusListener = { statusView.text = it }
+    @Suppress("DEPRECATION")
+    private fun systemBars(status: Int, nav: Int, lightIcons: Boolean) {
+        window.statusBarColor = status
+        window.navigationBarColor = nav
+        var flags = window.decorView.systemUiVisibility
+        val light = View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR or View.SYSTEM_UI_FLAG_LIGHT_NAVIGATION_BAR
+        flags = if (lightIcons) flags or light else flags and light.inv()
+        window.decorView.systemUiVisibility = flags
     }
 
     override fun onResume() {
         super.onResume()
-        refresh()
-        ui.post(ticker)
+        // While the app is open, a detection pops up as an alert inside it instead of a notification.
+        Alerts.foreground = { ev -> ui?.showAlert(ev) }
+        EventLog.listeners.add(changed)
+        Pipeline.statusListener = { changed() }
+        ui?.start()
+        ui?.onExternalChange()
+        showAlertFromIntent()
     }
 
     override fun onPause() {
-        ui.removeCallbacks(ticker)
+        Alerts.foreground = null
+        EventLog.listeners.remove(changed)
+        Pipeline.statusListener = null
+        ui?.stop()
         super.onPause()
+    }
+
+    /** Tapping the notification (app was closed) opens the same alert. */
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        showAlertFromIntent()
+    }
+
+    private fun showAlertFromIntent() {
+        val id = intent?.getLongExtra(EXTRA_ALERT_ID, -1L) ?: -1L
+        if (id < 0 || !hasAll()) return
+        intent?.removeExtra(EXTRA_ALERT_ID)
+        EventLog.find(id)?.let { ui?.showAlert(it) }
     }
 
     override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<out String>, grantResults: IntArray) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults)
-        refresh()
+        if (hasAll()) build()
     }
 
-    private fun refresh() {
-        val ok = hasAll()
-        optIn.visibility = if (ok) View.GONE else View.VISIBLE
-        home.visibility = if (ok) View.VISIBLE else View.GONE
-        if (ok) startSensor()
-    }
-
-    private fun startSensor() {
-        startForegroundService(Intent(this, SensorService::class.java))
-    }
-
-    private val ticker = object : Runnable {
-        override fun run() {
-            if (hasAll()) {
-                networkView.text = radio?.networkName() ?: "unavailable"
-                cellView.text = "Cell: " + (radio?.cellId() ?: "unavailable")
-            }
-            ui.postDelayed(this, 2000)
-        }
+    @Deprecated("Deprecated in Java")
+    override fun onBackPressed() {
+        if (ui?.onBack() == true) return
+        @Suppress("DEPRECATION")
+        super.onBackPressed()
     }
 }

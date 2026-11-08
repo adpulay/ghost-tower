@@ -33,13 +33,22 @@ object Notifier {
         nm.createNotificationChannel(NotificationChannel(CH, "Fake tower alerts", NotificationManager.IMPORTANCE_HIGH))
     }
 
-    fun fakeTower(ctx: Context) {
+    fun cancelAlert(ctx: Context) {
+        ctx.getSystemService(NotificationManager::class.java).cancel(1001)
+    }
+
+    fun fakeTower(ctx: Context, eventId: Long) {
         if (Build.VERSION.SDK_INT >= 33 &&
             ctx.checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
         ) return
         ensureChannel(ctx)
+        // Tapping it opens the app and shows the same alert pop-up.
         val open = PendingIntent.getActivity(
-            ctx, 0, Intent(ctx, MainActivity::class.java), PendingIntent.FLAG_IMMUTABLE,
+            ctx, eventId.toInt(),
+            Intent(ctx, MainActivity::class.java)
+                .putExtra(MainActivity.EXTRA_ALERT_ID, eventId)
+                .addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP),
+            PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
         )
         val n = Notification.Builder(ctx, CH)
             .setSmallIcon(android.R.drawable.stat_sys_warning)
@@ -72,6 +81,14 @@ object Notifier {
  */
 class RadioInfo(ctx: Context) {
     private val tm = ctx.getSystemService(TelephonyManager::class.java)
+
+    /** The phone's real data network type (a TelephonyManager.NETWORK_TYPE_* value), or UNKNOWN. */
+    @SuppressLint("MissingPermission")
+    fun networkType(): Int = try {
+        tm.dataNetworkType
+    } catch (e: Exception) {
+        TelephonyManager.NETWORK_TYPE_UNKNOWN
+    }
 
     @SuppressLint("MissingPermission")
     fun networkName(): String = try {
@@ -124,14 +141,28 @@ class DemoWatcher {
                 val tracks = Reporter.activeTracks()
                 val nearest = tracks.minOfOrNull { (lat, lon) -> metersFromPin(lat, lon) }
                 val near = nearest != null && nearest <= Demo.TRIGGER_RADIUS_M
-                if (near && !fired) {
+                if (near && !fired && Prefs.shieldOn) {
                     fired = true
                     Log.i("GhostTower", "demo fire: ${tracks.size} active, nearest ${nearest?.toInt()} m")
                     handler.post { Pipeline.fireDebug("demo") }
                 }
                 if (!near) fired = false // re-arm after the car leaves
+                clearIfWorldReset()
             }
             handler.postDelayed(this, 2000)
+        }
+    }
+
+    /**
+     * Restarting the sim resets the demo world, which deletes every report from the database. If this app has
+     * entries it reported (a while ago) but the database now holds none, the world was reset, so start the counters
+     * over too. A failed request reads as "unknown" and changes nothing.
+     */
+    private fun clearIfWorldReset() {
+        if (!EventLog.hasReportedOlderThan(15_000)) return
+        if (Reporter.phoneReportCount() == 0) {
+            Log.i("GhostTower", "demo world was reset; clearing the app's alerts")
+            EventLog.clear()
         }
     }
 

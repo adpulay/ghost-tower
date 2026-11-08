@@ -270,6 +270,7 @@ code { white-space: nowrap; font-family: var(--font-data); font-size: .85em; bac
 .key-dot { width: 10px; height: 10px; border-radius: 50%; }
 .key-phone { background: #9aa4b2; }
 .key-event { background: var(--event); box-shadow: 0 0 0 1.5px #fff, 0 0 0 2.5px rgba(0, 0, 0, .25); }
+.key-me { background: #e20074; box-shadow: 0 0 0 1.5px #fff, 0 0 0 3px #e20074; }
 .key-zone { width: 18px; height: 12px; background: rgba(242, 183, 5, .25); border: 2px solid #c99400; }
 .key-path { width: 20px; height: 0; border-top: 4px dashed var(--friendly); }
 

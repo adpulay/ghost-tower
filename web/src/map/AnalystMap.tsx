@@ -27,6 +27,12 @@ const interceptIcon = L.divIcon({
 const ALERT_ZONE = "#c99400";
 const ALERT_FILL = "#f2b705";
 const EVENT = "#f08a24";
+/** The physical phone running the Android app (same magenta as the app). */
+const PHONE = "#e20074";
+/** Where the demo phone sits: the Android app's fixed demo spot, rounded the way its reports are. */
+const DEMO_PHONE: LatLon = [32.979, -96.782];
+/** The physical phone's dot stays on the map this long (sim time), so you can watch the warning zone reach it. */
+const PHONE_HOLD_MS = 15 * 60_000;
 
 export function AnalystMap() {
   const { tables, status, detail, debug, mode } = useTables();
@@ -135,14 +141,46 @@ export function AnalystMap() {
     }
 
     // Orange dots: anomaly events, fading out over the 120 s window.
+    // Event timestamps are on the sim clock, which runs ahead of this browser's clock at --speed 3x, so age is
+    // measured against the newest event when that is ahead of the wall clock. Without this, every event from a
+    // fast run looked "from the future" and was skipped.
+    const newestTs = tables.anomaly_event.reduce((m, e) => Math.max(m, e.ts_ms), 0);
+    const clock = Math.max(now, newestTs);
+    // Reports from the physical phone running the Android app (source "phone") are drawn separately, below.
+    const mine: typeof tables.anomaly_event = [];
     for (const e of tables.anomaly_event) {
-      const age = now - e.ts_ms;
-      if (age > EVENT_WINDOW_MS || age < -5000) continue;
+      const age = clock - e.ts_ms;
+      if (e.source === "phone") { if (age <= PHONE_HOLD_MS) mine.push(e); continue; }
+      if (age > EVENT_WINDOW_MS) continue;
       const fade = Math.max(0.1, 1 - age / EVENT_WINDOW_MS);
       L.circleMarker([e.lat, e.lon], {
         radius: 6, color: "#ffffff", weight: 1.5, fillColor: EVENT, fillOpacity: fade, opacity: fade,
       })
         .bindTooltip(`Scam text${e.brand ? ` pretending to be ${e.brand}` : ""}, ${Math.max(0, Math.round(age / 1000))} s ago`)
+        .addTo(layer);
+    }
+
+    // Magenta dot with a ring: the physical phone running the app, so it stands out from the simulated phones.
+    // Drawn last so it sits on top, and it fades slower than the orange dots so it stays easy to find.
+    // Until it has reported, show the demo phone as a hollow ring at its fixed spot so the audience can watch the
+    // tower and the warning zone approach it. It turns into the solid dot below when the report arrives.
+    if (mine.length === 0) {
+      L.circleMarker(DEMO_PHONE, {
+        radius: 9, color: PHONE, weight: 3, dashArray: "3 4", fillColor: "#ffffff", fillOpacity: 0.85,
+      })
+        .bindTooltip("Demo phone (Campbell Rd), waiting for a fake tower")
+        .addTo(layer);
+    }
+    for (const e of mine) {
+      const age = clock - e.ts_ms;
+      const fade = Math.max(0.7, 1 - age / PHONE_HOLD_MS);
+      L.circleMarker([e.lat, e.lon], {
+        radius: 16, color: PHONE, weight: 2, fill: false, opacity: fade * 0.7, className: "me-ring",
+      }).addTo(layer);
+      L.circleMarker([e.lat, e.lon], {
+        radius: 8, color: "#ffffff", weight: 2, fillColor: PHONE, fillOpacity: fade, opacity: fade,
+      })
+        .bindTooltip(`Your phone: scam text${e.brand ? ` pretending to be ${e.brand}` : ""}, ${Math.max(0, Math.round(age / 1000))} s ago`)
         .addTo(layer);
     }
 
@@ -153,7 +191,6 @@ export function AnalystMap() {
       }
     }
   }, [tables, now, debug]);
-
   // Blaster estimate: persistent marker so it can glide between updates.
   useEffect(() => {
     const map = mapRef.current;
@@ -210,6 +247,7 @@ export function AnalystMap() {
         <ul className="legend" aria-label="Map key">
           <li><span className="key" dangerouslySetInnerHTML={{ __html: hostileSvg(18) }} />Fake tower</li>
           <li><span className="key"><i className="key-dot key-event" /></span>Scam text received</li>
+          <li><span className="key"><i className="key-dot key-me" /></span>Demo phone (ring = waiting, dot = alerted)</li>
           <li><span className="key"><i className="key-path" /></span>Where it's heading</li>
           <li><span className="key"><i className="key-zone" /></span>Phones warned here</li>
           <li><span className="key" dangerouslySetInnerHTML={{ __html: interceptSvg(20) }} />Police meet point</li>

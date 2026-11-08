@@ -36,8 +36,12 @@ object Pipeline {
 
     private val urlRegex = Regex("""(?i)\b(?:https?://)?((?:[a-z0-9-]+\.)+[a-z]{2,})(?:/\S*)?""")
 
+    /** Why protection needs attention right now (shown on the home screen), or null when all is well. */
+    @Volatile var problem: String? = null
+
     fun init(context: Context) {
         app = context.applicationContext
+        EventLog.init(app)
     }
 
     fun is2G(type: Int) = type == TelephonyManager.NETWORK_TYPE_GPRS ||
@@ -79,7 +83,7 @@ object Pipeline {
             val secs = lastDropSecs
             val r = Runnable {
                 if (!smsHandledForDrop) {
-                    io.execute { report(secs, 0f, "", "", fallbackNotify = false) }
+                    io.execute { report(secs, 0f, "", "", "", "", fallbackNotify = false) }
                 }
             }
             noSmsReport = r
@@ -99,20 +103,25 @@ object Pipeline {
         noSmsReport?.let { main.removeCallbacks(it) }
         val secs = if (since != null) (now - since) / 1000f else lastDropSecs
         val urlHash = hashDomain(text)
+        val domain = domainOf(text) ?: ""
+        val preview = text.take(120)
 
         io.execute {
             val scored = ScoreClient.score(text)
             val score = scored?.first ?: fallbackScore ?: 0f
             val brand = scored?.second ?: if (fallbackScore != null) "TxTag" else ""
             if (scored == null && fallbackScore == null) {
+                problem = "Can't reach the scam checker, so texts can't be scored."
                 setStatus("Classifier unreachable. Text not scored.")
                 return@execute
             }
-            report(secs, score, brand, urlHash, fallbackNotify = true)
+            report(secs, score, brand, urlHash, domain, preview, fallbackNotify = true)
         }
     }
 
-    private fun report(secs: Float, score: Float, brand: String, urlHash: String, fallbackNotify: Boolean) {
+    private fun report(
+        secs: Float, score: Float, brand: String, urlHash: String, domain: String, preview: String, fallbackNotify: Boolean,
+    ) {
         val (lat, lon) = Reporter.pinnedLocation()
         // Follow the sim clock when it runs ahead (sim --speed 3x), so the report lands in the tracker's window.
         val wall = System.currentTimeMillis()
@@ -123,11 +132,31 @@ object Pipeline {
             ratDrop = true, ratDropSecs = secs, smsScore = score,
             urlHash = urlHash, brand = brand, smsc = "unknown",
         )
+        problem = if (ok) null else "Couldn't send the report. Check your connection."
         setStatus(
             (if (ok) "Report sent" else "Report FAILED to send") +
                 " (2G %.1f s, scam score %.2f).".format(secs, score),
         )
-        if (fallbackNotify && score >= 0.5f) Notifier.fakeTower(app)
+        if (fallbackNotify && score >= 0.5f) {
+            // What the user sees: two entries in the activity list, and one alert (in the app, or a notification).
+            val now = System.currentTimeMillis()
+            val pct = (score * 100).toInt()
+            EventLog.add(
+                ThreatEvent(
+                    EventLog.newId(), now, "tower", "Fake tower detected",
+                    "Your phone was pulled onto 2G for %.0f s.".format(secs), score, brand, domain, "",
+                    reported = ok,
+                ),
+            )
+            val text = ThreatEvent(
+                EventLog.newId(), now + 1, "text", "Scam text flagged",
+                (if (brand.isNotBlank()) "Looks like a $brand message" else "Looks like a scam") + ", $pct% sure. Don't tap the link.",
+                score, brand, domain, preview,
+                reported = ok,
+            )
+            EventLog.add(text)
+            Alerts.raise(app, text)
+        }
     }
 
     /** The demo trigger: the simulated car passing, the button and the title long-press all call this. */
@@ -144,8 +173,11 @@ object Pipeline {
         }, 6_000)
     }
 
+    fun domainOf(text: String): String? =
+        urlRegex.find(text)?.groupValues?.get(1)?.lowercase()?.removePrefix("www.")
+
     fun hashDomain(text: String): String {
-        val domain = urlRegex.find(text)?.groupValues?.get(1)?.lowercase()?.removePrefix("www.") ?: return ""
+        val domain = domainOf(text) ?: return ""
         return MessageDigest.getInstance("SHA-256").digest(domain.toByteArray())
             .joinToString("") { "%02x".format(it) }
     }

@@ -91,6 +91,18 @@ object Reporter {
         null
     }
 
+    /**
+     * How many reports from phones (this app) the database holds, or null if it can't be reached. Zero after the
+     * demo world is reset, which is how the app notices a reset and clears its own activity log.
+     */
+    fun phoneReportCount(): Int? = try {
+        val url = "${BuildConfig.SPACETIME_URI}/v1/database/${BuildConfig.SPACETIME_DB}/sql"
+        val (code, body) = post(url, "SELECT id FROM anomaly_event WHERE source = 'phone'")
+        if (code !in 200..299) null else JSONArray(body).getJSONObject(0).getJSONArray("rows").length()
+    } catch (e: Exception) {
+        null
+    }
+
     /** Active track positions for demo mode: list of (lat, lon) where status == "active". */
     fun activeTracks(): List<Pair<Double, Double>> = try {
         val url = "${BuildConfig.SPACETIME_URI}/v1/database/${BuildConfig.SPACETIME_DB}/sql"
