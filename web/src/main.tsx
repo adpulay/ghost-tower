@@ -10,14 +10,17 @@ import "@fontsource/barlow/800.css";
 import "@fontsource/barlow-condensed/600.css";
 import "./styles.css";
 import App from "./App";
+import { AuthProvider } from "./auth/AuthContext";
 import { SpacetimeProvider } from "./spacetime/SpacetimeContext";
 
 ReactDOM.createRoot(document.getElementById("root")!).render(
   <React.StrictMode>
     <BrowserRouter>
-      <SpacetimeProvider>
-        <App />
-      </SpacetimeProvider>
+      <AuthProvider>
+        <SpacetimeProvider>
+          <App />
+        </SpacetimeProvider>
+      </AuthProvider>
     </BrowserRouter>
   </React.StrictMode>,
 );
