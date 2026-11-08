@@ -72,7 +72,7 @@ Every 3 s, `recluster` takes the last 120 s of events with fusion >= 0.3. It clu
 | `draft_report` called by the agent (TypeScript, LLM-backed with fallbacks) | done, untested against real Nemotron |
 | Android `/score` URL matches the classifier port (8001) | done |
 | Role 1 Spacetime module, simulator, eval | merged |
-| Role 1 patrol view mounted at `/patrol` | mounted and builds; live host only (not on the simulated feed); not yet run in a browser |
-| Web `liveSource.ts` wired to Spacetime | **todo**, can now use `spacetime/bindings` |
+| Role 1 patrol view mounted at `/patrol` | mounted; renders in a browser ("Connecting…" with no host); live host only; not yet seen with data |
+| Web `liveSource.ts` wired to Spacetime | done via Role 1's bindings; unit-tested with a fake connection, **never run against a real server** |
 | Agent uses Role 1's `predict_route` | done (ported to TypeScript; tested offline, live OSRM path untested) |
 | Android app compiled | **todo**, needs Android Studio |

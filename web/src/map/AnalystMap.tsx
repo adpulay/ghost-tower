@@ -1,6 +1,6 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import L from "leaflet";
-import { parseLatLonList, type LatLon } from "../spacetime/geo";
+import { parseLatLonList, pointInPolygon, type LatLon } from "../spacetime/geo";
 import { useTables } from "../spacetime/SpacetimeContext";
 
 const CENTER: LatLon = [32.9858, -96.7501]; // UTD / Campbell Rd, Richardson
@@ -96,7 +96,9 @@ export function AnalystMap() {
     for (const p of tables.prediction) {
       const path = parseLatLonList(p.path_json);
       if (path.length > 1) {
-        L.polyline(path, { color: "#ffffff", weight: 4, dashArray: "10 10", opacity: 0.9 }).addTo(layer);
+        // White casing under a dark dashed core so the path reads on both light map tiles and projectors.
+        L.polyline(path, { color: "#ffffff", weight: 9, opacity: 0.95 }).addTo(layer);
+        L.polyline(path, { color: "#1e3a8a", weight: 4, dashArray: "10 8" }).addTo(layer);
       }
       L.marker([p.intercept_lat, p.intercept_lon], { icon: interceptIcon })
         .bindTooltip(`Intercept · ETA ${p.eta_s}s`)
@@ -154,6 +156,19 @@ export function AnalystMap() {
   }, [tables.track]);
 
   const live = tables.anomaly_event.filter((e) => now - e.ts_ms <= EVENT_WINDOW_MS).length;
+  // There are no phone ids in the schema, so "hit after warning" counts distinct reports that land
+  // inside an alert zone after that alert was sent.
+  const hitAfterWarning = useMemo(() => {
+    const hit = new Set<number>();
+    for (const a of tables.alert) {
+      const zone = parseLatLonList(a.zone_json);
+      if (zone.length < 3) continue;
+      for (const e of tables.anomaly_event) {
+        if (e.ts_ms > a.sent_ms && pointInPolygon([e.lat, e.lon], zone)) hit.add(e.id);
+      }
+    }
+    return hit.size;
+  }, [tables.alert, tables.anomaly_event]);
   const warned = tables.alert.reduce((s, a) => s + a.recipients, 0);
   const track = tables.track[tables.track.length - 1];
   const campaign = tables.campaign[tables.campaign.length - 1];
@@ -175,6 +190,7 @@ export function AnalystMap() {
       <div className="hud hud-stats">
         <div><b>{live}</b><span>reports (120 s)</span></div>
         <div><b>{warned}</b><span>phones warned</span></div>
+        <div><b>{hitAfterWarning}</b><span>hit after warning</span></div>
         <div><b>{track ? track.status : "—"}</b><span>track</span></div>
         <div><b>{campaign ? campaign.brand : "—"}</b><span>campaign</span></div>
       </div>

@@ -1,31 +1,22 @@
-import type { ConnectionStatus, DataSource, Tables } from "./types";
+import { DbConnection, SPACETIME_HOST } from "../module_bindings";
+import { createLiveSourceWith, type LiveConn } from "./liveCore";
+import type { DataSource } from "./types";
 
 /**
- * Live Spacetime subscriptions. NOT WIRED YET: Role 1's schema/host lands ~4:30 PM.
- *
- * To wire it:
- *   1. Role 1 runs `spacetime generate --lang typescript --out-dir web/src/spacetime/module_bindings`.
- *   2. Build a DbConnection with `uri` and `dbName`, call
- *      subscribe(["SELECT * FROM anomaly_event", "... track", "... campaign",
- *                  "... agent_trace", "... prediction", "... alert"]).
- *      Do NOT subscribe to sim_truth unless `debug` is set.
- *   3. On every table insert/update/delete callback, rebuild a Tables snapshot
- *      from conn.db.<table>.iter() and call onTables(snapshot).
- *   4. Row types in ./types.ts already match INTERFACES.md §2, so snapshots drop in as-is.
+ * Live Spacetime subscriptions through Role 1's bindings (spacetime/bindings, re-exported by
+ * module_bindings). `uri` may be http(s):// or ws(s)://; empty falls back to the bindings'
+ * default (SPACETIME_HOST, ws://localhost:3000). The core logic lives in liveCore.ts.
  */
-export function createLiveSource(
-  uri: string,
-  dbName: string,
-  _debug: boolean,
-): DataSource {
-  return {
-    mode: "live",
-    start(_onTables: (t: Tables) => void, onStatus: (s: ConnectionStatus, d?: string) => void) {
-      onStatus(
-        "error",
-        `Live source not wired yet (${uri} / ${dbName}). Add the generated bindings in liveSource.ts, or drop ?source=live to use simulated data.`,
-      );
-      return () => {};
-    },
-  };
+export function createLiveSource(uri: string, dbName: string, debug: boolean): DataSource {
+  const target = uri.replace(/^http/, "ws") || SPACETIME_HOST;
+  return createLiveSourceWith((h) => {
+    const conn = DbConnection.builder()
+      .withUri(target)
+      .withDatabaseName(dbName)
+      .onConnect((c) => h.onConnect(c as unknown as LiveConn))
+      .onConnectError((_ctx, err) => h.onError(err))
+      .onDisconnect((_ctx, err) => h.onDisconnect(err ?? undefined))
+      .build();
+    return { disconnect: () => conn.disconnect() };
+  }, debug, `${target} (${dbName})`);
 }
