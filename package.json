@@ -1,0 +1,23 @@
+{
+  "name": "ghost-tower",
+  "private": true,
+  "type": "module",
+  "description": "Ghost Tower: detect and track SMS-blaster fake base stations from crowd-sourced phone reports",
+  "workspaces": ["spacetime"],
+  "bin": { "sim": "sim/src/cli.ts" },
+  "scripts": {
+    "sim": "node sim/src/cli.ts",
+    "eval": "node eval/src/run_eval.ts",
+    "test": "node --import ./spacetime/test/sys_stub.ts --test \"spacetime/test/*.test.ts\" \"sim/test/*.test.ts\" \"eval/test/*.test.ts\" \"web/src/patrol/*.test.ts\" && python3 -m unittest discover -s agent/tools/predict_route -p 'test_*.py'",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "routes": "node sim/tools/build_routes.mjs"
+  },
+  "engines": { "node": ">=22.18" },
+  "dependencies": {
+    "spacetimedb": "2.14.1"
+  },
+  "devDependencies": {
+    "@types/node": "24.10.1",
+    "typescript": "5.9.3"
+  }
+}

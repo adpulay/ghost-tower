@@ -1,0 +1,35 @@
+{
+  "id": "benign-01",
+  "seed": "benign-01",
+  "description": "Normal handovers, short dropouts and two parking garages",
+  "kind": "benign",
+  "phones": 300,
+  "area_bbox": [
+    32.972,
+    -96.795,
+    33.01,
+    -96.755
+  ],
+  "duration_s": 600,
+  "blasters": [],
+  "benign": {
+    "handover_rate_per_phone_hr": 6,
+    "dropout_rate_per_phone_hr": 2,
+    "real_toll_texts": 5,
+    "garages": [
+      {
+        "lat": 32.9865,
+        "lon": -96.7495,
+        "radius_m": 150,
+        "rate_per_phone_hr": 20
+      },
+      {
+        "lat": 32.999,
+        "lon": -96.768,
+        "radius_m": 120,
+        "rate_per_phone_hr": 20
+      }
+    ]
+  },
+  "tick_ms": 1000
+}

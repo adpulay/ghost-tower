@@ -1,0 +1,34 @@
+{
+  "id": "demo-01",
+  "seed": "demo-01",
+  "description": "The demo: Campbell Rd eastbound, left onto Coit Rd",
+  "kind": "attack",
+  "phones": 300,
+  "area_bbox": [
+    32.972,
+    -96.795,
+    33.01,
+    -96.755
+  ],
+  "blasters": [
+    {
+      "route": "routes/demo.json",
+      "speed_mps": 11,
+      "range_m": 500,
+      "on_air": [
+        [
+          0,
+          480
+        ]
+      ],
+      "brand": "TxTag",
+      "domain": "txtag-pay-demo.example"
+    }
+  ],
+  "benign": {
+    "handover_rate_per_phone_hr": 6,
+    "dropout_rate_per_phone_hr": 1,
+    "real_toll_texts": 5
+  },
+  "tick_ms": 1000
+}
