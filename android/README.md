@@ -19,14 +19,14 @@ Demo build. When the simulated fake tower's track passes the phone's pinned spot
    `./gradlew installDebug -PscoreUrl=http://<laptop-ip>:8001/score`
    Local fallback: add `-PspacetimeUri=http://<laptop-ip>:3000 -PspacetimeDb=ghost-tower`
    (the emulator reaches the host at `10.0.2.2`).
-3. Open the app, tap **Turn on sensor**, and grant the permissions. There is no mode switch: the demo trigger is always on.
+3. Open the app and tap **Turn on**. The permissions are optional: anything you deny only hides what depends on it. There is no mode switch: the demo trigger is always on.
 
 ## Warnings and the demo trigger
 - **Warning (zone):** the app also reads the `alert` table every 2 s. When an alert's warning zone covers the pinned spot, it shows "Fake tower heading your way" (the agent's message), once per tower. The zone test runs on the phone, so the phone's location is never sent to be warned. Alerts that already existed when the app started are ignored.
 - **Detection (proximity):** below.
 
 - **Automatic:** the app polls the `track` table every 2 s. When an *active* track's estimated position comes within 300 m of the pinned spot (`Demo` in `Net.kt`), it fires once. It re-arms after the car leaves.
-- **Manual:** the **Trigger the demo now** button, or a long-press on the title. It buzzes about 8 s later.
+- **Manual:** **Settings > Run the demo now**. It buzzes about 8 s later.
 - The phone always reports from the pinned spot (a fixed point on Coit Rd, just past the turn, coarsened to 3 decimals), never from its GPS.
 
 ## Code path
@@ -37,5 +37,5 @@ The report carries only `ts_ms`, coarsened lat/lon (3 decimals), `rat_drop`, `ra
 
 ## Known gaps
 - The `report_anomaly` call uses Spacetime's HTTP API with positional args in the order of INTERFACES.md §6. Confirm against Role 1's actual reducer signature.
-- `/score` unreachable: the demo path falls back to a fixed 0.97 score so the demo still fires.
+- `/score` unreachable: the demo path uses a sample score so it still fires, and the alert says so. **Settings > Scam checker address** changes the URL without a rebuild.
 - Cell ID needs location permission on many devices; the home screen shows "unavailable" if it is denied.

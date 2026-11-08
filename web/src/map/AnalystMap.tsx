@@ -1,8 +1,10 @@
 import { useEffect, useRef, useState } from "react";
 import L from "leaflet";
 import { corridorPolygon, parseLatLonList, type LatLon } from "../spacetime/geo";
+import { phonesWarned, worldClock } from "../spacetime/metrics";
 import { useTables } from "../spacetime/SpacetimeContext";
 import { hostileSvg, interceptSvg } from "../shell/symbols";
+import { WelcomeCard } from "../shell/WelcomeCard";
 import { focusTrack } from "../spacetime/focusTrack";
 
 const CENTER: LatLon = [32.9905, -96.7545]; // UTD / Campbell Rd, Richardson
@@ -114,13 +116,14 @@ export function AnalystMap() {
     if (alert && alert.id !== lastAlertRef.current.id) {
       lastAlertRef.current = { id: alert.id, at: Date.now() };
     }
-    if (alert) {
-      const focus = focusTrack(tables.track);
+    // Only while a tower is active: once it goes quiet its corridor no longer means anything.
+    const focus = focusTrack(tables.track);
+    if (alert && focus?.status === "active") {
       const pred = focus ? tables.prediction.find((p) => p.track_id === focus.id) : undefined;
-      const warnedYet = focus ? tables.alert.some((a) => a.track_id === focus.id) : true;
+      const warnedYet = tables.alert.some((a) => a.track_id === focus.id);
       const path = pred ? parseLatLonList(pred.path_json) : [];
       const zone = warnedYet && path.length > 1 ? corridorPolygon(path, 300) : parseLatLonList(alert.zone_json);
-      const warnedTotal = tables.alert.reduce((sum, a) => sum + a.recipients, 0);
+      const warnedTotal = phonesWarned(tables.alert);
       const flashing = now - lastAlertRef.current.at < FLASH_MS;
       L.polygon(zone, {
         color: ALERT_ZONE,
@@ -129,12 +132,14 @@ export function AnalystMap() {
         fillOpacity: flashing ? 0.35 : 0.18,
         className: flashing ? "zone-flash" : "",
       })
-        .bindTooltip(`${warnedTotal} phones along this route were warned`)
+        .bindTooltip(`${warnedTotal} ${warnedTotal === 1 ? "phone" : "phones"} warned along this route`)
         .addTo(layer);
     }
 
     // Predicted path + intercept.
+    const activeIds = new Set(tables.track.filter((t) => t.status === "active").map((t) => t.id));
     for (const p of tables.prediction) {
+      if (!activeIds.has(p.track_id)) continue; // predictions outlive their track in the database
       const path = parseLatLonList(p.path_json);
       if (path.length > 1) {
         // White casing under a blue dashed core so the path reads on the grey basemap and on projectors.
@@ -142,7 +147,7 @@ export function AnalystMap() {
         L.polyline(path, { color: "#1257c7", weight: 4, dashArray: "10 8" }).addTo(layer);
       }
       L.marker([p.intercept_lat, p.intercept_lon], { icon: interceptIcon })
-        .bindTooltip("Where police can meet it")
+        .bindTooltip("Suggested place to intercept it")
         .addTo(layer);
     }
 
@@ -157,8 +162,7 @@ export function AnalystMap() {
     // Event timestamps are on the sim clock, which runs ahead of this browser's clock at --speed 3x, so age is
     // measured against the newest event when that is ahead of the wall clock. Without this, every event from a
     // fast run looked "from the future" and was skipped.
-    const newestTs = tables.anomaly_event.reduce((m, e) => Math.max(m, e.ts_ms), 0);
-    const clock = Math.max(now, newestTs);
+    const clock = worldClock(tables.anomaly_event, now);
     // Reports from the physical phone running the Android app (source "phone") are drawn separately, below.
     const mine: typeof tables.anomaly_event = [];
     for (const e of tables.anomaly_event) {
@@ -251,6 +255,8 @@ export function AnalystMap() {
           </div>
         )}
 
+        {mode === "mock" && <WelcomeCard />}
+
         {canShow && (
           <button type="button" className="map-find" onClick={showTower}>
             Show the fake tower
@@ -263,7 +269,7 @@ export function AnalystMap() {
           <li><span className="key"><i className="key-dot key-me" /></span>Demo phone (ring = waiting, dot = alerted)</li>
           <li><span className="key"><i className="key-path" /></span>Where it's heading</li>
           <li><span className="key"><i className="key-zone" /></span>Phones warned here</li>
-          <li><span className="key" dangerouslySetInnerHTML={{ __html: interceptSvg(20) }} />Police meet point</li>
+          <li><span className="key" dangerouslySetInnerHTML={{ __html: interceptSvg(20) }} />Suggested meet point</li>
           {mode === "mock" && <li><span className="key"><i className="key-dot key-phone" /></span>Phones (demo)</li>}
         </ul>
       </div>

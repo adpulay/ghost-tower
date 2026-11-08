@@ -3,24 +3,23 @@
 Detect and track SMS-blaster fake base stations from crowd-sourced phone reports. Phones report "dropped to 2G, then got a scam text". SpacetimeDB fuses the reports into moving tracks. A Nemotron agent predicts the route and warns phones ahead of it. An analyst map and a patrol tablet show it live.
 
 Contract: [`INTERFACES.md`](INTERFACES.md) · test plan: [`TESTING.md`](TESTING.md) · latest numbers: [`eval/results.md`](eval/results.md)
-Per-role plans: `A.zip` (Role 1), `C.zip` (Role 2), `J/J.md` (Role 3).
 
 ## Layout
 
-| Path | Owner | What |
-|---|---|---|
-| `spacetime/src/` | Role 1 | Module. `schema.ts` + `columns.ts` define the tables, `index.ts` the reducers, `tracking.ts` the recluster math (pure, deterministic), `fusion.ts` §4. |
-| `spacetime/bindings/` | Role 1 | TypeScript client bindings (same shape as `spacetime generate`). |
-| `sim/` | Role 1 | Seeded simulator: `scenarios/*.json` (10 from TESTING.md §1), `routes/*.json` (real OSM roads via OSRM). |
-| `eval/` | Role 1 | `run_eval.ts` → `results.md`: detection time, error, protected-before-hit, false alarms, ablation, load test. |
-| `agent/tools/predict_route/` | Role 1 | Route prediction (OSRM road-following with a straight-line fallback), TypeScript, called by the agent. |
-| `web/src/patrol/` | Role 1 | Patrol tablet view, mounted at `/patrol`. |
-| `agent/` | Role 2 | Nemotron agent service and tools (`draft_report` is Role 3's, in TypeScript). |
-| `classifier/` | Role 2 | SMS scam classifier and `/score` endpoint (port 8001). |
-| `web/src/trace-panel/` | Role 2 | Live agent trace component, mounted in the shell. |
-| `web/` | Role 3 | React app shell, analyst map (`/`), patrol (`/patrol`), trace panel slot. |
-| `android/` | Role 3 | Phone sensor app. |
-| `pitch/` | Role 3 | Demo script and slide outline. |
+| Path | What |
+|---|---|
+| `spacetime/src/` | Module. `schema.ts` + `columns.ts` define the tables, `index.ts` the reducers, `tracking.ts` the recluster math (pure, deterministic), `fusion.ts` §4. |
+| `spacetime/bindings/` | TypeScript client bindings (same shape as `spacetime generate`). |
+| `sim/` | Seeded simulator: `scenarios/*.json` (10 from TESTING.md §1), `routes/*.json` (real OSM roads via OSRM). |
+| `eval/` | `run_eval.ts` → `results.md`: detection time, error, protected-before-hit, false alarms, ablation, load test. |
+| `agent/tools/predict_route/` | Route prediction (OSRM road-following with a straight-line fallback), TypeScript, called by the agent. |
+| `web/src/patrol/` | Patrol tablet view, mounted at `/patrol`. |
+| `agent/` | Nemotron agent service and tools (including `draft_report`). |
+| `classifier/` | SMS scam classifier and `/score` endpoint (port 8001). |
+| `web/src/trace-panel/` | Live agent trace component, mounted in the shell. |
+| `web/` | React app shell, analyst map (`/`), patrol (`/patrol`), trace panel slot. |
+| `android/` | Phone sensor app. |
+| `pitch/` | Demo script and slide outline. |
 
 ## Run it
 
@@ -28,7 +27,7 @@ Needs Node 22.23.4 or newer (pinned in `.nvmrc`; `agent/` refuses older versions
 
 ```sh
 npm install                                               # 1. deps (repo root: spacetime, sim, eval)
-spacetime publish --project-path spacetime ghost-tower    # 2. module (add -s maincloud for the shared instance)
+spacetime publish --module-path spacetime ghost-tower    # 2. module (add -s maincloud for the shared instance)
 SPACETIME_DB=ghost-tower npm run sim -- run demo-01       # 3. drive the demo (add --speed 4x to go faster)
 npm run eval                                              # 4. metrics + ablation + load test -> eval/results.md
 npm test                                                  # 5. reducer, sim, eval and patrol tests (predict_route tests are in agent/)
@@ -36,7 +35,19 @@ npm test                                                  # 5. reducer, sim, eva
 
 No server handy? `npm run sim -- run --local demo-01` runs the **real module in-process** on the SpacetimeDB SDK's test datastore. The eval and tests use the same path.
 
-Other commands: `npm run sim -- list`, `npm run sim -- reset` (`reset_world`), `npm run sim -- run --no-reset <id>`. Env: `SPACETIME_HOST` (default `ws://localhost:3000`), `SPACETIME_DB` (default `ghost-tower`), `CLASSIFIER_URL` (Role 2's `/score`; cached scores otherwise).
+Other commands: `npm run sim -- list`, `npm run sim -- reset` (`reset_world`), `npm run sim -- run --no-reset <id>`. Env: `SPACETIME_HOST` (default `ws://localhost:3000`), `SPACETIME_DB` (default `ghost-tower`), `CLASSIFIER_URL` (the `/score` endpoint; cached scores otherwise), `SPACETIME_TOKEN` (see below; live runs need it, and it falls back to `.env`).
+
+**Before a live demo:** `npm run preflight` checks the database, token, classifier, Nemotron, road router and text warnings without changing anything.
+
+### Database access
+
+Phones report anonymously. Everything else (agent, simulator, `reset_world`, the dev knobs) is limited to the database's operator, so nobody else can wipe or skew a shared instance.
+
+- **New database:** the identity that publishes it is the operator.
+- **A database published before this change:** run `spacetime call <db> claim_operator -s maincloud` straight after publishing. The first caller wins, so don't leave a gap.
+- Put that identity's token in `.env` as `SPACETIME_TOKEN` (`spacetime login show --token`). The agent and simulator both use it.
+
+Publish the module **before** deploying the web app: the site subscribes to the new `case_report` table and its connection fails without it.
 
 **Venue Wi-Fi dies:** `spacetime start` on a laptop, publish to it, and point every client at `ws://<laptop-ip>:3000`.
 
@@ -64,16 +75,15 @@ Every 3 s, `recluster` takes the last 120 s of events with fusion >= 0.3. It clu
 - Benign noise: handovers, short dropouts, parking garages (long 2G stays, ignored by fusion), a foreign 2G cell (`border-01`), and real TxTag texts (`smsc_match=yes`). Cached classifier scores: lures 0.93-0.99, real toll texts 0.55-0.95.
 - Phishing domains are always `.example`, so nothing ever touches a real phishing site.
 
-## Integration status
+## Status
 
 | Piece | State |
 |---|---|
-| Role 2 trace panel mounted in the web shell | done |
-| `draft_report` called by the agent (TypeScript, LLM-backed with fallbacks) | done, untested against real Nemotron |
-| Android `/score` URL matches the classifier port (8001) | done |
-| Role 1 Spacetime module, simulator, eval | merged |
-| Role 1 patrol view mounted at `/patrol` | mounted; renders in a browser ("Connecting…" with no host); live host only; not yet seen with data |
-| Web `liveSource.ts` wired to Spacetime | done via Role 1's bindings; unit-tested with a fake connection, **never run against a real server** |
-| Agent uses Role 1's `predict_route` | done (ported to TypeScript; tested offline, live OSRM path untested) |
-| Android app compiled | **todo**, needs Android Studio |
-
+| Spacetime module, simulator, eval | done; access rules tested on a real server |
+| Web console and patrol tablet, live or simulated | done; rehearsed against Maincloud |
+| Agent on Nemotron, warning relay | done |
+| Evidence packet (police and registrar reports) | done; template path tested offline, not yet seen with Nemotron text |
+| Android demo app | builds (`./gradlew assembleDebug`) |
+| Classifier | rule-based until `train.py --final` runs on the real dataset |
+| `agent/results.md` | mock numbers only; re-run with `NEMOTRON_PROVIDER=brev` before quoting |
+| Real 2G and SMS detection on phones | not built: the phone's inputs are simulated |

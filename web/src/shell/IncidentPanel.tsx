@@ -1,9 +1,9 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import { compass } from "../patrol/patrolModel";
 import { focusCampaign, focusTrack } from "../spacetime/focusTrack";
-import { parseLatLonList, pointInPolygon } from "../spacetime/geo";
-import type { Tables } from "../spacetime/types";
+import { phonesWarned, worldClock } from "../spacetime/metrics";
 import { useTables } from "../spacetime/SpacetimeContext";
+import { EvidencePacket } from "./EvidencePacket";
 import { shieldSvg } from "./symbols";
 
 const EVENT_WINDOW_MS = 120_000; // matches the recluster window
@@ -47,8 +47,9 @@ export function IncidentPanel() {
   const now = useNow();
   const track = useFocusTrack();
 
-  const reports = tables.anomaly_event.filter((e) => now - e.ts_ms <= EVENT_WINDOW_MS).length;
-  const warned = tables.alert.reduce((s, a) => s + a.recipients, 0);
+  const clock = worldClock(tables.anomaly_event, now);
+  const reports = tables.anomaly_event.filter((e) => clock - e.ts_ms <= EVENT_WINDOW_MS).length;
+  const warned = phonesWarned(tables.alert);
   const campaign = focusCampaign(track, tables.campaign);
   const prediction = track ? tables.prediction.find((p) => p.track_id === track.id) : undefined;
   const eta = prediction ? Math.max(0, Math.round(prediction.eta_s - (now - prediction.updated_ms) / 1000)) : undefined;
@@ -77,12 +78,12 @@ export function IncidentPanel() {
   }
 
   const sure = track ? sureness(track.confidence) : undefined;
-  const hitAfter = useMemo(() => countHitAfterWarning(tables), [tables]);
+  const evidence = track ? tables.case_report.filter((r) => r.track_id === track.id) : [];
 
   return (
     <section className={`status status-${tone}`} aria-labelledby="status-title">
       <div className="status-hero">
-        <span className="status-shield" dangerouslySetInnerHTML={{ __html: shieldSvg(tone, 52) }} />
+        <span className="status-shield" dangerouslySetInnerHTML={{ __html: shieldSvg(tone, 38) }} />
         <div>
           {tone === "danger" && <span className="tag tag-danger">Scam likely</span>}
           <h1 id="status-title" className="status-title">{title}</h1>
@@ -90,21 +91,13 @@ export function IncidentPanel() {
       </div>
       <p className="status-body">{body}</p>
 
-      {(warned > 0 || tone === "danger") && (
-        <div className="protect">
-          <p className="protect-main">
-            <b>{warned.toLocaleString()}</b>
-            <span>{warned === 1 ? "phone warned" : "phones warned"} before the tower reached them</span>
-          </p>
-          <p className={`protect-sub${hitAfter > 0 ? " bad" : ""}`}>
-            {hitAfter === 0
-              ? "Nobody has received the scam text after being warned."
-              : `${hitAfter} ${hitAfter === 1 ? "phone" : "phones"} still got the scam text after the warning.`}
-          </p>
-        </div>
-      )}
-
       <dl className="facts">
+        {(warned > 0 || tone === "danger") && (
+          <div title="Warned phones are told not to tap links in these texts.">
+            <dt>{warned === 1 ? "Phone warned" : "Phones warned"} on its route</dt>
+            <dd className="fact-num">{warned.toLocaleString()}</dd>
+          </div>
+        )}
         {sure && (
           <div>
             <dt>How sure we are</dt>
@@ -117,42 +110,23 @@ export function IncidentPanel() {
           </div>
         )}
         <div>
-          <dt>Scam texts reported</dt>
-          <dd>{reports} in the last 2 minutes</dd>
+          <dt>Scam texts, last 2 min</dt>
+          <dd className="fact-num">{reports.toLocaleString()}</dd>
         </div>
-        {campaign && (
-          <div>
-            <dt>Scam website</dt>
-            <dd>
-              Created {campaign.domain_age_days === 1 ? "yesterday" : `${campaign.domain_age_days} days ago`}
-              <small>Brand-new websites are a common sign of a scam.</small>
-            </dd>
+        {campaign && campaign.domain_age_days >= 0 && (
+          <div title="Brand-new websites are a common sign of a scam.">
+            <dt>Scam website created</dt>
+            <dd>{campaign.domain_age_days === 1 ? "Yesterday" : `${campaign.domain_age_days} days ago`}</dd>
           </div>
         )}
         {track?.status === "active" && eta !== undefined && (
-          <div>
-            <dt>Police can meet it</dt>
-            <dd>
-              {plainEta(eta)}
-              <small>At the blue target on the map.</small>
-            </dd>
+          <div title="The blue target on the map.">
+            <dt>Expected at meet point</dt>
+            <dd>{plainEta(eta)}</dd>
           </div>
         )}
+        <EvidencePacket reports={evidence} />
       </dl>
     </section>
   );
-}
-
-// There are no phone ids in the schema, so "got it after the warning" counts distinct reports that
-// land inside an alert zone after that alert was sent.
-function countHitAfterWarning(tables: Tables): number {
-  const hit = new Set<number>();
-  for (const a of tables.alert) {
-    const zone = parseLatLonList(a.zone_json);
-    if (zone.length < 3) continue;
-    for (const e of tables.anomaly_event) {
-      if (e.ts_ms > a.sent_ms && pointInPolygon([e.lat, e.lon], zone)) hit.add(e.id);
-    }
-  }
-  return hit.size;
 }

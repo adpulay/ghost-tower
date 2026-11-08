@@ -1,5 +1,6 @@
 import type { TrailPoint } from "../tools/predict_route/index.js";
 import { TOOLS_BY_NAME, type InvestigationMemory, type ToolContext } from "../tools/index.js";
+import type { DraftResult } from "../tools/draft_report/index.js";
 import { buildContext, errMsg, factSummary, renderArgs, type Mode, type RunResult } from "./agent.js";
 import { clip, withSimulatedTag, writeTrace } from "./trace.js";
 import type { Track } from "./types.js";
@@ -18,7 +19,8 @@ export interface PlaybookOptions {
  * Why: in the model loop every step was a model round trip followed by a database write, about
  * 11 sequential turns and ~12 s per investigation, and the model never made a real choice: it ran
  * the same eight tools in the same order every time. Here the independent steps run in parallel
- * and the model is called once, inside draft_report, to write the warning text:
+ * and the model is called once, inside draft_report, to write the warning text, then (in the background, see
+ * queueEvidence) to write the police brief and the registrar report:
  *
  *   investigate:  [rdap_domain_age | carrier_smsc_lookup | predict_route]
  *                 → [agent_link_campaign | agent_set_prediction] → draft_report → send_warning → agent_record_alert
@@ -35,15 +37,38 @@ export class PlaybookInvestigator {
   private now: () => number;
   private log?: (entry: Record<string, unknown>) => void;
   private traceChains = new Map<number, Promise<void>>();
+  private evidence = new Set<Promise<void>>();
 
   constructor(private world: World, opts: PlaybookOptions = {}) {
     this.now = opts.now ?? Date.now;
     this.log = opts.log;
   }
 
-  /** Resolves once every queued agent_trace line has been written (tests, and clean shutdown). */
+  /** Resolves once every queued agent_trace line and evidence report has been written (tests, and clean shutdown). */
   async flushTraces(): Promise<void> {
-    await Promise.all([...this.traceChains.values()]);
+    await Promise.all([...this.traceChains.values(), ...this.evidence]);
+  }
+
+  /**
+   * Writes the evidence packet without holding up the run: while a run is in progress the service pauses this
+   * track's route refreshes, and these drafts can take several seconds. Failures are logged and never affect the warning.
+   */
+  private queueEvidence(toolCtx: ToolContext, kinds: ("police" | "registrar")[]): void {
+    const draft = TOOLS_BY_NAME.get("draft_report");
+    if (!draft) return;
+    const job: Promise<void> = Promise.all(
+      kinds.map(async (kind) => {
+        try {
+          const out = (await draft.run({ track_id: toolCtx.trackId, kind }, toolCtx)) as DraftResult;
+          await this.world.agentSaveReport(toolCtx.trackId, kind, out.text, out.generated);
+        } catch (e) {
+          this.log?.({ event: "evidence_error", track: toolCtx.trackId, kind, error: errMsg(e) });
+        }
+      }),
+    )
+      .then(() => undefined)
+      .finally(() => this.evidence.delete(job));
+    this.evidence.add(job);
   }
 
   private trace(trackId: number, kind: TraceKind, text: string): void {
@@ -136,6 +161,8 @@ export class PlaybookInvestigator {
     }
 
     if (!quiet) this.trace(track.id, "summary", clip(await factSummary(this.world, track, mode, result, memory)));
+    if (mode === "investigate") this.queueEvidence(toolCtx, ["police", "registrar"]);
+    else if (mode === "replan") this.queueEvidence(toolCtx, ["police"]); // the position and intercept changed; the domain didn't
     return result;
   }
 }

@@ -27,10 +27,16 @@ import kotlin.math.sqrt
 
 object Notifier {
     private const val CH = "fake_tower"
+    private const val STATUS_CH = "sensor_status"
 
+    /** The detection message. It says "simulated" because screenshots of it travel without the rest of the app. */
+    const val DETECTION_TEXT = "Simulated: your phone was just pulled onto a fake cell tower. The sample text is fake. Don't tap links like it."
+
+    /** Alerts and the always-on status line are separate channels, so muting the status can't silence the alerts. */
     private fun ensureChannel(ctx: Context) {
         val nm = ctx.getSystemService(NotificationManager::class.java)
         nm.createNotificationChannel(NotificationChannel(CH, "Fake tower alerts", NotificationManager.IMPORTANCE_HIGH))
+        nm.createNotificationChannel(NotificationChannel(STATUS_CH, "Demo status", NotificationManager.IMPORTANCE_LOW))
     }
 
     fun cancelAlert(ctx: Context) {
@@ -51,11 +57,10 @@ object Notifier {
             PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
         )
         val warning = ev.kind == "warning"
-        val title = if (warning) ev.title else "Fake cell tower detected"
-        val text = if (warning) ev.detail
-        else "Your phone was just pulled onto a fake cell tower. The text you received is fake. Don't tap the link."
+        val title = "Demo: " + if (warning) ev.title else "Fake cell tower detected"
+        val text = if (warning) ev.detail else DETECTION_TEXT
         val n = Notification.Builder(ctx, CH)
-            .setSmallIcon(android.R.drawable.stat_sys_warning)
+            .setSmallIcon(R.drawable.ic_stat_tower)
             .setContentTitle(title)
             .setContentText(text)
             .setStyle(Notification.BigTextStyle().bigText(text))
@@ -67,10 +72,10 @@ object Notifier {
 
     fun foreground(ctx: Context): Notification {
         ensureChannel(ctx)
-        return Notification.Builder(ctx, CH)
-            .setSmallIcon(android.R.drawable.stat_sys_data_bluetooth)
-            .setContentTitle("Ghost Tower sensor is on")
-            .setContentText("Watching for fake-tower events only.")
+        return Notification.Builder(ctx, STATUS_CH)
+            .setSmallIcon(R.drawable.ic_stat_tower)
+            .setContentTitle("Ghost Tower demo is on")
+            .setContentText("Waiting for the simulated fake tower.")
             .build()
     }
 }
@@ -151,6 +156,7 @@ class DemoWatcher(private val ctx: Context) {
     private var lastAlertId = -1L
     private val warnedTracks = HashSet<Long>()
     private var sawAlerts = false
+    private var failedPolls = 0
 
     fun start() {
         if (running) return
@@ -198,7 +204,11 @@ class DemoWatcher(private val ctx: Context) {
     }
 
     private fun checkWarnings() {
-        val alerts = Reporter.alerts() ?: return
+        val alerts = Reporter.alerts()
+        // Two misses in a row, so one slow request doesn't flash a warning at the user.
+        failedPolls = if (alerts == null) failedPolls + 1 else 0
+        if (alerts != null) Pipeline.linkOk = true else if (failedPolls >= 2) Pipeline.linkOk = false
+        if (alerts == null) return
         if (alerts.isEmpty()) {
             if (sawAlerts) {
                 // The alert table was emptied: the demo world was reset (the sim restarted). Start over.

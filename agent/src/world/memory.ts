@@ -13,6 +13,8 @@ export class MemoryWorld implements World {
   predictions = new Map<number, Prediction>();
   traces: AgentTrace[] = [];
   alerts: Alert[] = [];
+  /** Latest evidence report per "<trackId>:<kind>". */
+  reports = new Map<string, { text: string; generated: boolean }>();
   now: () => number;
   private nextId = 1;
 
@@ -74,5 +76,8 @@ export class MemoryWorld implements World {
   }
   async agentRecordAlert(a: Omit<Alert, "id">) {
     this.alerts.push({ ...a, id: this.nextId++ });
+  }
+  async agentSaveReport(trackId: number, kind: "police" | "registrar", text: string, generated: boolean) {
+    this.reports.set(`${trackId}:${kind}`, { text, generated });
   }
 }

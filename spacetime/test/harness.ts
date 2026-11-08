@@ -3,7 +3,7 @@
 // (the npm scripts pass it via --import; LocalWorld callers import it explicitly).
 import { restoreConsole } from './sys_stub.ts';
 import { createModuleTestHarness, TestAuth, TestClock } from 'spacetimedb/server/test-utils';
-import { Timestamp } from 'spacetimedb';
+import { ConnectionId, Timestamp } from 'spacetimedb';
 import * as mod from '../src/index.ts';
 import { reclusterPass } from '../src/logic.ts';
 
@@ -36,6 +36,13 @@ export class LocalWorld {
   call<K extends ReducerName>(name: K, args: ArgsOf<K>): void {
     const fn = mod[name] as unknown as (ctx: unknown, a: unknown) => void;
     this.h.withReducerTx(this.#auth, ctx => fn(ctx, args));
+  }
+
+  /** Call a reducer as an anonymous client (what a phone, or an attacker, looks like). Throws on SenderError. */
+  callAsAnonymous<K extends ReducerName>(name: K, args: ArgsOf<K>): void {
+    const fn = mod[name] as unknown as (ctx: unknown, a: unknown) => void;
+    const auth = TestAuth.fromJwtPayload(JSON.stringify({ iss: 'localhost', sub: 'anonymous' }), ConnectionId.random());
+    this.h.withReducerTx(auth, ctx => fn(ctx, args));
   }
 
   /** What the scheduled reducer does every 3 s on a server. */

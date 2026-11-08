@@ -1,7 +1,7 @@
 # Agent (Role 2): Nemotron investigation agent
 
 A long-lived service that watches the Spacetime `track` table and, for every track that goes
-`active`, runs a plan → tool → re-plan loop on Nemotron. Every tool call and result goes to
+`active`, runs an investigation playbook in code and has Nemotron write the warning and the evidence reports (`AGENT_MODE=llm` switches to a model-driven tool loop). Every tool call and result goes to
 `agent_trace` through the `agent_write_trace` reducer, so it streams live to every screen.
 
 Requires **Node.js 22.23.4 or newer** (pinned in `/.nvmrc`; `npm install` refuses older versions).

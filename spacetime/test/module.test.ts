@@ -118,8 +118,8 @@ test('status: candidate -> active -> dormant -> active (same url_hash, 2 km away
 
   // Back on air 2 km east, same campaign: the same track comes back as active.
   const far = offset(ORIGIN, 2000, 0);
-  burst(w, far, last + 180_000, 3);
   w.setNow(last + 183_000);
+  burst(w, far, last + 180_000, 3);
   w.recluster();
   const tracks = w.rows('track');
   assert.equal(tracks.length, 1, 'no new track');
@@ -224,4 +224,46 @@ test('sim_write_truth advances the sim clock; reset_world clears everything', ()
 
   w.call('dev_set_fusion_weights', DEFAULT_WEIGHTS);
   assert.throws(() => w.call('dev_set_fusion_weights', { w_rat: 2, w_sms: 0, w_smsc: 0, smsc_bonus: 0 }));
+});
+
+test('anonymous clients can report but cannot touch anything else', () => {
+  const w = new LocalWorld(T0);
+  w.callAsAnonymous('report_anomaly', {
+    ts_ms: BigInt(T0), lat: 32.98, lon: -96.75, rat_drop: true, rat_drop_secs: 8, sms_score: 0.97, url_hash: 'h', brand: 'TxTag', smsc_match: 'unknown', source: 'phone',
+  } as any);
+  assert.equal(w.rows('anomaly_event').length, 1, 'phones stay anonymous');
+
+  const denied: [any, any][] = [
+    ['reset_world', {}],
+    ['dev_set_fusion_weights', DEFAULT_WEIGHTS],
+    ['sim_write_truth', { scenario: 'x', ts_ms: BigInt(T0) * 2n, lat: 0, lon: 0, on_air: true }],
+    ['agent_write_trace', { track_id: 1n, kind: 'plan', text: 'x' }],
+    ['agent_record_alert', { track_id: 1n, zone_json: '[]', message: 'x', sent_ms: 0n, recipients: 1 }],
+    ['agent_save_report', { track_id: 1n, kind: 'police', text: 'x', generated: true }],
+    ['check_operator', {}],
+    ['claim_operator', {}],
+  ];
+  for (const [name, args] of denied) assert.throws(() => w.callAsAnonymous(name, args), /operator/, `${name} must be refused`);
+  assert.equal(w.rows('anomaly_event').length, 1, 'nothing was wiped');
+  assert.equal(w.rows('dev_config')[0].sim_now_ms, 0n, 'the clock did not move');
+});
+
+test('report_anomaly refuses a far-future timestamp that would skew every map', () => {
+  const w = new LocalWorld(T0);
+  assert.throws(() => report(w, { ts_ms: BigInt(T0 + 3_600_000), lat: 32.98, lon: -96.75 }), /future/);
+  report(w, { ts_ms: BigInt(T0 + 30_000), lat: 32.98, lon: -96.75 });
+  assert.equal(w.rows('anomaly_event').length, 1);
+});
+
+test('agent_save_report keeps one row per track and kind, and reset_world clears it', () => {
+  const w = new LocalWorld(T0);
+  w.call('agent_save_report', { track_id: 1n, kind: 'police', text: 'first', generated: false });
+  w.call('agent_save_report', { track_id: 1n, kind: 'police', text: 'second', generated: true });
+  w.call('agent_save_report', { track_id: 1n, kind: 'registrar', text: 'abuse', generated: true });
+  const rows = w.rows('case_report');
+  assert.equal(rows.length, 2);
+  assert.equal(rows.find(r => r.kind === 'police').text, 'second');
+  assert.throws(() => w.call('agent_save_report', { track_id: 1n, kind: 'warning', text: 'x', generated: true }));
+  w.call('reset_world', {});
+  assert.equal(w.rows('case_report').length, 0);
 });

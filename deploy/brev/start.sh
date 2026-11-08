@@ -155,7 +155,7 @@ summary() {
 Ghost Tower is up on this box.
   Phones' classifier URL: $url/score
   Rebuild the APK with it:   cd android && ./gradlew assembleDebug -PscoreUrl=$url/score
-  (Phones on an old URL still work: they fall back to score 0.97 when /score is unreachable.)
+  (Or paste it into the app's Settings, no rebuild needed. On an old URL the app uses a sample score and labels it.)
 EOF
   [ "$TUNNEL_LLM" = 1 ] && echo "  vLLM for laptops: BREV_BASE_URL=$(cat "$STATE/llm_url")/v1"
   echo "  Status: bash $REPO/deploy/brev/start.sh status    Stop: bash $REPO/deploy/brev/start.sh stop"

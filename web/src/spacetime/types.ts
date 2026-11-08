@@ -63,6 +63,16 @@ export interface Alert {
   recipients: number;
 }
 
+export interface CaseReport {
+  id: number;
+  track_id: number;
+  kind: "police" | "registrar" | string;
+  text: string;
+  /** false when the fixed template was used instead of model text */
+  generated: boolean;
+  updated_ms: number;
+}
+
 // Simulator only. Never rendered unless ?debug=1.
 export interface SimTruth {
   scenario: string;
@@ -87,6 +97,7 @@ export interface Tables {
   agent_trace: AgentTrace[];
   prediction: Prediction[];
   alert: Alert[];
+  case_report: CaseReport[];
   sim_truth: SimTruth[];
   mock_phones: MockPhone[];
 }
@@ -98,6 +109,7 @@ export const emptyTables = (): Tables => ({
   agent_trace: [],
   prediction: [],
   alert: [],
+  case_report: [],
   sim_truth: [],
   mock_phones: [],
 });

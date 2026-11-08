@@ -39,6 +39,9 @@ object Pipeline {
     /** Why protection needs attention right now (shown on the home screen), or null when all is well. */
     @Volatile var problem: String? = null
 
+    /** Whether the app can read the demo database: null until the first poll answers. */
+    @Volatile var linkOk: Boolean? = null
+
     fun init(context: Context) {
         app = context.applicationContext
         EventLog.init(app)
@@ -115,12 +118,13 @@ object Pipeline {
                 setStatus("Classifier unreachable. Text not scored.")
                 return@execute
             }
-            report(secs, score, brand, urlHash, domain, preview, fallbackNotify = true)
+            report(secs, score, brand, urlHash, domain, preview, fallbackNotify = true, offlineScore = scored == null)
         }
     }
 
     private fun report(
         secs: Float, score: Float, brand: String, urlHash: String, domain: String, preview: String, fallbackNotify: Boolean,
+        offlineScore: Boolean = false,
     ) {
         val (lat, lon) = Reporter.pinnedLocation()
         // Follow the sim clock when it runs ahead (sim --speed 3x), so the report lands in the tracker's window.
@@ -132,7 +136,11 @@ object Pipeline {
             ratDrop = true, ratDropSecs = secs, smsScore = score,
             urlHash = urlHash, brand = brand, smsc = "unknown",
         )
-        problem = if (ok) null else "Couldn't send the report. Check your connection."
+        problem = when {
+            !ok -> "Couldn't send the report. Check your connection."
+            offlineScore -> "The scam checker is offline, so the demo used a sample score."
+            else -> null
+        }
         setStatus(
             (if (ok) "Report sent" else "Report FAILED to send") +
                 " (2G %.1f s, scam score %.2f).".format(secs, score),
@@ -145,14 +153,15 @@ object Pipeline {
                 ThreatEvent(
                     EventLog.newId(), now, "tower", "Fake tower detected",
                     "Your phone was pulled onto 2G for %.0f s.".format(secs), score, brand, domain, "",
-                    reported = ok,
+                    reported = ok, offlineScore = offlineScore,
                 ),
             )
             val text = ThreatEvent(
                 EventLog.newId(), now + 1, "text", "Scam text flagged",
-                (if (brand.isNotBlank()) "Looks like a $brand message" else "Looks like a scam") + ", $pct% sure. Don't tap the link.",
+                (if (brand.isNotBlank()) "Looks like a $brand message" else "Looks like a scam") +
+                    (if (offlineScore) " (sample score, checker offline)" else ", $pct% sure") + ". Don't tap the link.",
                 score, brand, domain, preview,
-                reported = ok,
+                reported = ok, offlineScore = offlineScore,
             )
             EventLog.add(text)
             Alerts.raise(app, text)

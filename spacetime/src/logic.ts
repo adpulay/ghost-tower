@@ -1,7 +1,7 @@
 // Shared reducer helpers: config row, world clock, schedule, and the recluster pass.
 // Kept out of index.ts because a module entry may only export reducers/tables.
 
-import { ScheduleAt, type InferSchema, type ReducerCtx } from 'spacetimedb/server';
+import { ScheduleAt, SenderError, type InferSchema, type ReducerCtx } from 'spacetimedb/server';
 import type spacetimedb from './schema.ts';
 import { DEFAULT_WEIGHTS, type FusionWeights } from './fusion.ts';
 import { P, recluster as runRecluster, type EventIn, type TrackIn, type TrackStatus } from './tracking.ts';
@@ -12,6 +12,16 @@ export type Ctx = ReducerCtx<InferSchema<typeof spacetimedb>>;
 
 export function config(ctx: Ctx) {
   return ctx.db.dev_config.id.find(0) ?? ctx.db.dev_config.insert({ id: 0, ...DEFAULT_WEIGHTS, sim_now_ms: 0n });
+}
+
+/**
+ * Guards every reducer that can change the world other than a phone's report. Phones stay anonymous, but
+ * without this anyone holding the database name could wipe it (reset_world) or move its clock.
+ */
+export function requireOperator(ctx: Ctx) {
+  if (!ctx.db.operator.identity.find(ctx.sender)) {
+    throw new SenderError('operator only: set SPACETIME_TOKEN to the token of the identity that claimed this database');
+  }
 }
 
 /** World clock: server time, or the simulator's clock if a sped-up sim is ahead of it. */

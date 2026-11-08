@@ -7,16 +7,16 @@ Regenerate after any change to `spacetime/src/tracking.ts`, `fusion.ts` or the s
 
 | Scenario | Kind | First alert (s) | Usable fix (s) | Err median (m) | Err p90 (m) | Protected before hit (%) | Active tracks per run | False active | Event precision | Event recall | recluster mean (ms) |
 |---|---|---|---|---|---|---|---|---|---|---|---|
-| benign-01 | benign | n/a | n/a | n/a | n/a | n/a | 0/0/0 | 0 | n/a | n/a | 0.8 |
-| benign-02 | benign | n/a | n/a | n/a | n/a | n/a | 0/0/0 | 0 | n/a | n/a | 0.9 |
-| border-01 | benign | n/a | n/a | n/a | n/a | n/a | 0/0/0 | 0 | n/a | n/a | 0.7 |
-| demo-01 | attack | 12 | 12 | 264 | 400 | 90 | 1/1/1 | 0 | 1.00 | 1.00 | 1.2 |
-| offon-01 | attack | 12 | 12 | 219 | 331 | 36 | 1/1/1 | 0 | 1.00 | 1.00 | 0.9 |
-| stopgo-01 | attack | 18 | 18 | 146 | 257 | 88 | 1/1/1 | 0 | 1.00 | 1.00 | 1.0 |
-| straight-01 | attack | 12 | 12 | 283 | 377 | 90 | 1/1/1 | 0 | 1.00 | 1.00 | 0.8 |
+| benign-01 | benign | n/a | n/a | n/a | n/a | n/a | 0/0/0 | 0 | n/a | n/a | 1.0 |
+| benign-02 | benign | n/a | n/a | n/a | n/a | n/a | 0/0/0 | 0 | n/a | n/a | 0.7 |
+| border-01 | benign | n/a | n/a | n/a | n/a | n/a | 0/0/0 | 0 | n/a | n/a | 0.5 |
+| demo-01 | attack | 12 | 12 | 264 | 400 | 90 | 1/1/1 | 0 | 1.00 | 1.00 | 0.9 |
+| offon-01 | attack | 12 | 12 | 219 | 331 | 36 | 1/1/1 | 0 | 1.00 | 1.00 | 0.7 |
+| stopgo-01 | attack | 18 | 18 | 146 | 257 | 88 | 1/1/1 | 0 | 1.00 | 1.00 | 1.1 |
+| straight-01 | attack | 12 | 12 | 283 | 377 | 90 | 1/1/1 | 0 | 1.00 | 1.00 | 0.7 |
 | turns-01 | attack | 12 | 12 | 261 | 374 | 84 | 1/1/1 | 0 | 1.00 | 1.00 | 1.1 |
-| twin-01 | attack | 12 | 12 | 248 | 396 | 89 | 2/2/2 | 0 | 1.00 | 1.00 | 1.3 |
-| walker-01 | attack | 9 | 9 | 39 | 61 | 100 | 1/1/1 | 0 | 1.00 | 1.00 | 1.1 |
+| twin-01 | attack | 12 | 12 | 248 | 396 | 89 | 2/2/2 | 0 | 1.00 | 1.00 | 1.2 |
+| walker-01 | attack | 9 | 9 | 39 | 61 | 100 | 1/1/1 | 0 | 1.00 | 1.00 | 1.0 |
 
 **False alarms (benign scenarios): 0 active tracks in 450 phone-hours = 0.00 per 1,000 phone-hours.**
 
@@ -24,7 +24,7 @@ How to read it:
 - *First alert*: first `active` track on the blaster minus its first on-air second. Reports reach Spacetime only after the phone leaves the 2G cell (5-10 s) plus 1-4 s upload, so this cannot be ~0.
 - *Usable fix*: first time the error is ≤ 300 m and stays there for 30 s.
 - *Error*: per recluster pass (every 3 s) while on air, distance from the associated active track to the true position.
-- *Protected before hit*: **uses a stand-in for the agent alerts** (every 30 s per active track, a corridor 600 m either side of a straight 5-min projection). The real number depends on Role 2's agent + `predict_route`; re-measure once it runs.
+- *Protected before hit*: **uses a stand-in for the agent alerts** (every 30 s per active track, a corridor 600 m either side of a straight 5-min projection). The real number depends on the agent + `predict_route`; re-measure once it runs.
 - *Event precision/recall*: an event counts as "predicted" if it ended up on a track that went active; ground truth is whether a blaster caused it.
 
 ## Fusion ablation (TESTING.md §2c)
@@ -38,7 +38,20 @@ Weights from `ABLATION_PRESETS` (spacetime/src/fusion.ts), subsets renormalized 
 | Text + 2G drop | 1.00 | 1.00 | 0 |
 | All three (+ carrier log check) | 1.00 | 1.00 | 0 |
 
-Caveat: benign real-toll texts use a cached classifier score of 0.55-0.95 (an assumption that real TxTag reminders look scammy to a text model). Set `CLASSIFIER_URL` and re-run with Role 2's real scores.
+Caveat: benign real-toll texts use a cached classifier score of 0.55-0.95 (an assumption that real TxTag reminders look scammy to a text model). Set `CLASSIFIER_URL` and re-run with the real classifier scores.
+
+## Adoption density
+
+How many phones must run the app before a blaster is caught. demo-01 with fewer phones in the same 15.8 km² area, 3 seeded runs each, medians over runs. Every simulated phone counts as an opted-in sensor, spread evenly and stationary, so treat this as a best case.
+
+| Phones with the app | Per km² | Runs caught | First alert (s) | Err median (m) | Protected before hit (%) |
+|---|---|---|---|---|---|
+| 25 | 1.6 | 1/3 | 297 | 587 | 100 |
+| 50 | 3.2 | 3/3 | 108 | 384 | 61 |
+| 100 | 6.3 | 3/3 | 60 | 308 | 76 |
+| 150 | 9.5 | 3/3 | 30 | 267 | 85 |
+| 200 | 12.7 | 3/3 | 27 | 277 | 84 |
+| 300 | 19.0 | 3/3 | 12 | 264 | 90 |
 
 ## Load test (TESTING.md §2a)
 
@@ -46,6 +59,6 @@ demo-01 with more phones in the same area (so density, hits per pass and events 
 
 | Phones | Events in run | recluster p50 (ms) | p95 (ms) | max (ms) |
 |---|---|---|---|---|
-| 300 | 509 | 1.1 | 11.5 | 18.1 |
-| 1,000 | 1822 | 3.6 | 21.1 | 51.2 |
-| 3,000 | 5402 | 12.7 | 33.1 | 60.6 |
+| 300 | 509 | 1.0 | 11.8 | 20.4 |
+| 1,000 | 1822 | 3.2 | 21.1 | 40.1 |
+| 3,000 | 5402 | 10.7 | 30.0 | 218.7 |

@@ -9,7 +9,9 @@
 //   sim list                        list scenarios
 //
 // Env: SPACETIME_HOST (default ws://localhost:3000), SPACETIME_DB (default ghost-tower),
-//      CLASSIFIER_URL (optional; Role 2's /score endpoint, otherwise cached scores are used).
+//      CLASSIFIER_URL (optional; the /score endpoint, otherwise cached scores are used),
+//      SPACETIME_TOKEN (the database operator's token; falls back to the repo's .env. Live runs need it).
+import { existsSync, readFileSync } from 'node:fs';
 import { parseArgs } from 'node:util';
 import { listScenarios, loadScenario } from './scenario.ts';
 import { liveSink, localSink, type Sink } from './sinks.ts';
@@ -20,7 +22,16 @@ const USAGE = `usage:
   sim reset [--host ws://...] [--db name]
   sim list`;
 
+/** Only the token comes from .env: the host and database must stay explicit, so a run can't hit Maincloud by surprise. */
+function loadTokenFromDotEnv() {
+  const file = new URL('../../.env', import.meta.url);
+  if (process.env.SPACETIME_TOKEN || !existsSync(file)) return;
+  const m = readFileSync(file, 'utf8').match(/^SPACETIME_TOKEN=(\S+)/m);
+  if (m) process.env.SPACETIME_TOKEN = m[1];
+}
+
 async function main() {
+  loadTokenFromDotEnv();
   const { positionals, values } = parseArgs({
     allowPositionals: true,
     options: {

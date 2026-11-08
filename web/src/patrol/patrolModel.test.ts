@@ -24,7 +24,7 @@ test('status line: latest replan wins, else a plain description', () => {
   ];
   assert.match(statusLine(t, traces, undefined, 0), /^Target turned north on Coit Rd/);
   const p = { track_id: 1n, path_json: '[]', intercept_lat: 0, intercept_lon: 0, eta_s: 180, updated_ms: 0n };
-  assert.equal(statusLine(t, [], p, 0), 'Target heading north at ~40 km/h. Intercept in ~3 min.');
+  assert.equal(statusLine(t, [], p, 0), 'Target heading north at ~25 mph. Intercept in ~3 min.');
   assert.equal(statusLine(undefined, [], undefined, 0), 'No active target. Stand by.');
 });
 

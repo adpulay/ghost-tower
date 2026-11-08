@@ -26,6 +26,9 @@ class MainActivity : Activity() {
 
     private fun hasAll() = perms.all { checkSelfPermission(it) == PackageManager.PERMISSION_GRANTED }
 
+    /** Every permission is optional: once the user has answered the prompt, the app opens whatever they chose. */
+    private fun canEnter() = Prefs.onboarded || hasAll()
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         Pipeline.init(this)
@@ -36,7 +39,7 @@ class MainActivity : Activity() {
     private fun build() {
         val u = AppUi(this)
         ui = u
-        if (hasAll()) {
+        if (canEnter()) {
             systemBars(Ui.p.bg, Ui.p.card, lightIcons = !Ui.p.dark)
             setContentView(u.root)
             startForegroundService(Intent(this, SensorService::class.java))
@@ -84,14 +87,15 @@ class MainActivity : Activity() {
 
     private fun showAlertFromIntent() {
         val id = intent?.getLongExtra(EXTRA_ALERT_ID, -1L) ?: -1L
-        if (id < 0 || !hasAll()) return
+        if (id < 0 || !canEnter()) return
         intent?.removeExtra(EXTRA_ALERT_ID)
         EventLog.find(id)?.let { ui?.showAlert(it) }
     }
 
     override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<out String>, grantResults: IntArray) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults)
-        if (hasAll()) build()
+        Prefs.onboarded = true
+        build()
     }
 
     @Deprecated("Deprecated in Java")

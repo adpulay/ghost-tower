@@ -2,8 +2,6 @@
 // track, the intercept star, an ETA countdown, the predicted route line, and one status line
 // that updates on each `replan` trace row. Held by a judge, so everything is large.
 //
-// Mount it at /patrol inside Role 3's app shell, under their SpacetimeDBProvider:
-//   <Route path="/patrol" element={<PatrolView />} />
 import { useEffect, useMemo, useState } from 'react';
 import { MapContainer, Marker, Polyline, TileLayer, useMap } from 'react-leaflet';
 import L from 'leaflet';
@@ -13,7 +11,7 @@ import { usePatrolData } from './usePatrolData.ts';
 import { TopBar } from '../shell/TopBar';
 import { hostileSvg, interceptSvg } from '../shell/symbols';
 import {
-  activeTracks, compass, etaRemaining, formatEta, parsePath, pickTarget, statusLine, type TrackRow,
+  activeTracks, compass, etaRemaining, formatEta, mph, parsePath, pickTarget, statusLine, type TrackRow,
 } from './patrolModel.ts';
 
 const UTD: [number, number] = [32.9857, -96.7502];
@@ -65,7 +63,7 @@ function FollowCamera({ target, intercept }: { target?: TrackRow; intercept?: [n
 }
 
 export default function PatrolView() {
-  const { tracks, predictions, traces, ready } = usePatrolData();
+  const { tracks, predictions, traces, ready, lost } = usePatrolData();
   const now = useNow();
   const [chosen, setChosen] = useState<bigint | null>(null);
 
@@ -82,7 +80,7 @@ export default function PatrolView() {
       <TopBar />
       <header className="patrol-status" role="status" aria-live="polite">
         <span className={`patrol-dot ${target ? 'live' : ''}`} />
-        <span className="patrol-status-text">{ready ? line : 'Connecting…'}</span>
+        <span className="patrol-status-text">{ready ? line : lost ? 'Connection lost. Reconnecting…' : 'Connecting…'}</span>
       </header>
 
       <MapContainer className="patrol-map" center={UTD} zoom={14} zoomControl={false} attributionControl>
@@ -101,7 +99,7 @@ export default function PatrolView() {
 
       <footer className="patrol-footer">
         <div className="patrol-eta">
-          <div className="patrol-eta-label">Get to the intercept in</div>
+          <div className="patrol-eta-label">Tower reaches the intercept in</div>
           <div className="patrol-eta-value">{eta === undefined ? '—' : formatEta(eta)}</div>
         </div>
         <div className="patrol-target-info">
@@ -110,7 +108,7 @@ export default function PatrolView() {
               <div className="patrol-big">Target {String(target.id)}</div>
               <div className="patrol-sub">
                 {target.speed_mps >= 1
-                  ? `Heading ${compass(target.heading_deg)}, ${Math.round(target.speed_mps * 3.6)} km/h`
+                  ? `Heading ${compass(target.heading_deg)}, ${mph(target.speed_mps)} mph`
                   : 'Stationary'}
               </div>
             </>

@@ -1,0 +1,49 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  typescript:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+      - run: npm ci
+      - run: npm test
+      - run: npm run typecheck
+      - name: Web build
+        run: npm ci --prefix web && npm run build --prefix web
+      - name: Agent tests
+        working-directory: agent
+        env:
+          NEMOTRON_PROVIDER: mock
+          TWILIO_DRY_RUN: "1"
+          PREDICT_ROUTE_OFFLINE: "1"
+        run: npm ci && npx tsc --noEmit -p . && npx tsx --test test/*.test.ts
+
+  classifier:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -r classifier/requirements.txt
+      - run: python -X utf8 -m unittest discover -s classifier/tests
+
+  android:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+      - name: Build the debug APK
+        working-directory: android
+        run: chmod +x gradlew && ./gradlew assembleDebug --console=plain
