@@ -1,22 +1,39 @@
-import type { ComponentType } from "react";
+import { useMemo } from "react";
+import { SpacetimeDBProvider } from "spacetimedb/react";
+import { DbConnection, SPACETIME_DB, SPACETIME_HOST } from "../module_bindings";
+import PatrolView from "../patrol/PatrolView";
 import { useTables } from "../spacetime/SpacetimeContext";
 import { TracePanel } from "../trace-panel";
 
 /**
- * Role 1 drops the patrol tablet in at web/src/patrol/index.tsx (default export).
- * import.meta.glob resolves at build time and tolerates a missing file, so the
- * shell builds and runs before Role 1 has pushed.
+ * Role 1's patrol tablet reads tables through `spacetimedb/react`, so it needs a real
+ * connection under a SpacetimeDBProvider. That connection exists only on this route and
+ * only when the app runs against a live host; the analyst map uses the shared hook.
  */
-const patrolMods = import.meta.glob<{ default: ComponentType }>("../patrol/index.tsx", { eager: true });
-const Patrol = Object.values(patrolMods)[0]?.default;
-
 export function PatrolSlot() {
-  if (Patrol) return <Patrol />;
+  const { mode } = useTables();
+  const builder = useMemo(() => {
+    const uri = (import.meta.env.VITE_SPACETIME_URI as string | undefined)?.replace(/^http/, "ws") || SPACETIME_HOST;
+    const db = (import.meta.env.VITE_SPACETIME_DB as string | undefined) || SPACETIME_DB;
+    return DbConnection.builder().withUri(uri).withDatabaseName(db);
+  }, []);
+
+  if (mode !== "live") {
+    return (
+      <div className="placeholder">
+        <h2>Patrol view</h2>
+        <p>
+          The patrol tablet reads from a live Spacetime host. Set <code>VITE_SPACETIME_URI</code> in{" "}
+          <code>web/.env</code> (or open with <code>?source=live</code>) and publish the module; it does not run on
+          the simulated feed.
+        </p>
+      </div>
+    );
+  }
   return (
-    <div className="placeholder">
-      <h2>Patrol view</h2>
-      <p>Role 1 mounts the patrol tablet here: export a default component from <code>web/src/patrol/index.tsx</code>.</p>
-    </div>
+    <SpacetimeDBProvider connectionBuilder={builder}>
+      <PatrolView />
+    </SpacetimeDBProvider>
   );
 }
 
