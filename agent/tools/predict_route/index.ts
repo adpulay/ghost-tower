@@ -174,10 +174,12 @@ const MAX_TRAIL_POINTS = 10;
 /** Below this much movement over the trail, there is no direction to snap. */
 const MIN_TRAIL_SPAN_M = 60;
 const MIN_MATCH_CONFIDENCE = 0.5;
-/** Short window used to notice a turn the 60 s fit has not caught up with. */
-const TURN_WINDOW_MS = 10_000;
-/** The short fit and the given heading must agree this closely to count as a turn. */
-const TURN_AGREE_DEG = 30;
+/** The trail replaces the given heading only when they differ by more than this. */
+const TRAIL_OVERRULE_DEG = () => Number(process.env.PREDICT_ROUTE_OVERRULE_DEG ?? 90);
+/** A trail counts as having turned when two legs leave at most this share of one line's squared error... */
+const TURN_SSE_RATIO = 0.5;
+/** ...and the legs point at least this far apart. */
+const TURN_MIN_DEG = 30;
 /** The snapped road's direction must agree with the trail's own fitted direction. */
 const MAX_MATCH_FIT_DEV_DEG = 45;
 /**
@@ -204,13 +206,23 @@ function recentTrail(trail: readonly TrailPoint[], windowMs = trailWindowMs()): 
   return out;
 }
 
-/**
- * Least-squares velocity over the trail (east/north metres against time), so one noisy fix can't
- * flip the direction. Null when there are too few points or too little movement.
- */
-export function fitMotion(trail: readonly TrailPoint[], windowMs?: number): { heading_deg: number; speed_mps: number; span_m: number } | null {
-  const pts = recentTrail(trail, windowMs);
-  if (pts.length < 3) return null;
+export interface Motion {
+  heading_deg: number;
+  speed_mps: number;
+  span_m: number;
+}
+
+interface LinFit {
+  vE: number;
+  vN: number;
+  /** Sum of squared residuals, m². */
+  sse: number;
+  tSpanS: number;
+}
+
+/** Least-squares east/north velocity of points against time (local flat plane). Null below 2 points. */
+function linFit(pts: readonly TrailPoint[]): LinFit | null {
+  if (pts.length < 2) return null;
   const o = pts[0]!;
   const mlat = rad(1) * EARTH_R;
   const mlon = mlat * Math.cos(rad(o.lat));
@@ -219,16 +231,64 @@ export function fitMotion(trail: readonly TrailPoint[], windowMs?: number): { he
   const n = pts.map((p) => (p.lat - o.lat) * mlat);
   const tm = t.reduce((s, x) => s + x, 0) / t.length;
   const varT = t.reduce((s, x) => s + (x - tm) ** 2, 0);
-  if (varT < 25) return null; // under ~10 s of history
-  const slope = (ys: number[]) => {
+  if (varT <= 0) return null;
+  let sse = 0;
+  const fit1 = (ys: number[]) => {
     const ym = ys.reduce((s, y) => s + y, 0) / ys.length;
-    return t.reduce((s, x, i) => s + (x - tm) * (ys[i]! - ym), 0) / varT;
+    const v = t.reduce((s, x, i) => s + (x - tm) * (ys[i]! - ym), 0) / varT;
+    for (let i = 0; i < ys.length; i++) sse += (ys[i]! - (ym + v * (t[i]! - tm))) ** 2;
+    return v;
   };
-  const vE = slope(e), vN = slope(n);
-  const speed = Math.hypot(vE, vN);
-  const span = speed * (t[t.length - 1]! - t[0]!);
+  const vE = fit1(e), vN = fit1(n);
+  return { vE, vN, sse, tSpanS: t[t.length - 1]! - t[0]! };
+}
+
+function toMotion(f: LinFit | null, minPoints: number, count: number): Motion | null {
+  if (!f || count < minPoints || f.tSpanS < 10) return null; // under ~10 s of history
+  const speed = Math.hypot(f.vE, f.vN);
+  const span = speed * f.tSpanS;
   if (span < MIN_TRAIL_SPAN_M) return null;
-  return { heading_deg: mod(deg(Math.atan2(vE, vN)), 360), speed_mps: speed, span_m: span };
+  return { heading_deg: mod(deg(Math.atan2(f.vE, f.vN)), 360), speed_mps: speed, span_m: span };
+}
+
+/**
+ * Least-squares velocity over the trail (east/north metres against time), so one noisy fix can't
+ * flip the direction. Null when there are too few points or too little movement.
+ */
+export function fitMotion(trail: readonly TrailPoint[], windowMs?: number): Motion | null {
+  const pts = recentTrail(trail, windowMs);
+  return toMotion(linFit(pts), 3, pts.length);
+}
+
+/**
+ * Direction of the latest straight stretch of the trail. A single fit across a turn averages the two
+ * roads into a diagonal (seen live after the Coit Rd turn: a straight-line route heading northeast).
+ * So try every split into "before" and "after"; if two lines explain the trail much better than one
+ * and they point TURN_MIN_DEG or more apart, it turned, and only the part after the turn counts.
+ * `turned` with a null `fit` means the turn is too recent to have its own fit (fewer than 3 points
+ * after it): the caller should use the heading it was given. Works on point counts, not seconds, so
+ * it behaves the same whether the track updates every 3 s or every 12 s (live at 4x).
+ */
+export function latestLeg(trail: readonly TrailPoint[]): { fit: Motion | null; turned: boolean } {
+  const pts = recentTrail(trail);
+  const full = linFit(pts);
+  const whole = toMotion(full, 3, pts.length);
+  if (!full || pts.length < 4) return { fit: whole, turned: false };
+  let best: { sse: number; a: LinFit; b: LinFit; bCount: number } | null = null;
+  for (let k = 2; k <= pts.length - 1; k++) {
+    // Both legs share the corner point, so neither leg jumps.
+    const a = linFit(pts.slice(0, k));
+    const bPts = pts.slice(k - 1);
+    const b = linFit(bPts);
+    if (!a || !b) continue;
+    if (!best || a.sse + b.sse < best.sse) best = { sse: a.sse + b.sse, a, b, bCount: bPts.length };
+  }
+  if (!best || best.sse > TURN_SSE_RATIO * full.sse) return { fit: whole, turned: false };
+  const dirA = mod(deg(Math.atan2(best.a.vE, best.a.vN)), 360);
+  const dirB = mod(deg(Math.atan2(best.b.vE, best.b.vN)), 360);
+  if (Math.hypot(best.a.vE, best.a.vN) < MOVING_MPS || Math.hypot(best.b.vE, best.b.vN) < MOVING_MPS) return { fit: whole, turned: false };
+  if (angleDiff(dirA, dirB) < TURN_MIN_DEG) return { fit: whole, turned: false };
+  return { fit: toMotion(best.b, 3, best.bCount), turned: true };
 }
 
 interface OsrmMatchResponse {
@@ -317,16 +377,12 @@ export async function predictRoute(input: PredictRouteInput, deps: PredictRouteD
   // third of trails and did not beat the plain fit. Worth trying with a self-hosted OSRM.
   const trailMode = deps.trailMode ?? (process.env.PREDICT_ROUTE_SNAP === "1" ? "snap" : "fit");
   if (input.trail?.length && trailMode !== "none") {
-    let fit = fitMotion(input.trail);
-    // A 60 s fit lags a turn. When the heading we were given (the service passes the last ~8 s of
-    // movement) and a fit of only the last TURN_WINDOW_MS agree with each other but not with the long
-    // fit, the blaster is turning: follow the given heading. A merely noisy heading has no such support.
-    const recent = fitMotion(input.trail, TURN_WINDOW_MS);
-    if (
-      fit && recent && reported >= MOVING_MPS &&
-      angleDiff(fit.heading_deg, heading) > MAX_MATCH_FIT_DEV_DEG &&
-      angleDiff(recent.heading_deg, heading) <= TURN_AGREE_DEG
-    ) fit = null;
+    // Only the stretch since the last turn; if the turn is too recent to fit, the given heading
+    // (the service passes the last few seconds of movement) is the best we have.
+    const { fit } = latestLeg(input.trail);
+    // Only overrule the given heading when it is clearly wrong (pointing well away from where the
+    // track has gone, or no speed to speak of). Live at 4x, a fit that merely differs did worse.
+    const overrule = !!fit && (reported < MOVING_MPS || angleDiff(fit.heading_deg, heading) > TRAIL_OVERRULE_DEG());
     let snapped: SnappedMotion | null = null;
     if (fit && trailMode === "snap" && !offline) {
       try {
@@ -337,7 +393,7 @@ export async function predictRoute(input: PredictRouteInput, deps: PredictRouteD
     }
     if (snapped) {
       [lat, lon, heading, reported, road, basis] = [snapped.lat, snapped.lon, snapped.heading_deg, Math.min(MAX_SPEED_MPS, snapped.speed_mps), snapped.road, "snapped"];
-    } else if (fit) {
+    } else if (fit && overrule) {
       [heading, reported, basis] = [fit.heading_deg, Math.min(MAX_SPEED_MPS, fit.speed_mps), "trail"];
     }
   }
