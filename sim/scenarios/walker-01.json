@@ -1,0 +1,34 @@
+{
+  "id": "walker-01",
+  "seed": "walker-01",
+  "description": "Hand-carried, low power (150 m), walking 1.4 m/s across UTD campus",
+  "kind": "attack",
+  "phones": 300,
+  "area_bbox": [
+    32.982,
+    -96.755,
+    32.992,
+    -96.745
+  ],
+  "blasters": [
+    {
+      "route": "routes/walker.json",
+      "speed_mps": 1.4,
+      "range_m": 150,
+      "on_air": [
+        [
+          0,
+          460
+        ]
+      ],
+      "brand": "TxTag",
+      "domain": "txtag-pay-demo.example"
+    }
+  ],
+  "benign": {
+    "handover_rate_per_phone_hr": 6,
+    "dropout_rate_per_phone_hr": 1,
+    "real_toll_texts": 5
+  },
+  "tick_ms": 1000
+}

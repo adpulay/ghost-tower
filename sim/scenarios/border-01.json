@@ -1,0 +1,29 @@
+{
+  "id": "border-01",
+  "seed": "border-01",
+  "description": "Phones near a 'foreign' 2G cell: short 2G drops, no SMS",
+  "kind": "benign",
+  "phones": 300,
+  "area_bbox": [
+    32.972,
+    -96.795,
+    33.01,
+    -96.755
+  ],
+  "duration_s": 600,
+  "blasters": [],
+  "benign": {
+    "handover_rate_per_phone_hr": 6,
+    "dropout_rate_per_phone_hr": 1,
+    "real_toll_texts": 0,
+    "foreign_cells": [
+      {
+        "lat": 32.99,
+        "lon": -96.77,
+        "radius_m": 600,
+        "rate_per_phone_hr": 20
+      }
+    ]
+  },
+  "tick_ms": 1000
+}

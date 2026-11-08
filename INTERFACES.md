@@ -114,7 +114,7 @@ Names and fields are fixed once agreed. Types are written generically; Role 1 ma
 ### `sim_truth`: **simulator only**, never shown in the demo UI
 | Field | Type | Notes |
 |---|---|---|
-| `scenario` | string | |
+| `scenario` | string | `"<scenario-id>#<blaster-index>"`, e.g. `twin-01#1` (one row per blaster per tick) |
 | `ts_ms` | u64 | |
 | `lat`, `lon` | f64 | true blaster position |
 | `on_air` | bool | is the blaster transmitting |
@@ -132,7 +132,8 @@ Names and fields are fixed once agreed. Types are written generically; Role 1 ma
 | `agent_link_campaign` | agent | `track_id, url_hash, brand, domain_age_days` | upserts `campaign`, sets `track.campaign_id` |
 | `agent_record_alert` | agent | `alert` fields | inserts `alert` |
 | `sim_write_truth` | simulator | `sim_truth` fields | inserts truth row |
-| `reset_world` | dev only | none | clears all tables (for rehearsals) |
+| `reset_world` | dev only | none | clears all tables (for rehearsals); keeps `dev_config` weights and the recluster schedule |
+| `dev_set_fusion_weights` | dev only (Role 1 ablation) | `w_rat, w_sms, w_smsc, smsc_bonus` | sets the §4 weights for events ingested **after** the call |
 
 **Hard rule: the agent never writes `confidence` or `status`.** Only `recluster` does. The LLM proposes; the database decides.
 
@@ -152,11 +153,14 @@ smsc_signal     = 1.0 if smsc_match == "no"
 ```
 Events with `fusion < 0.3` are stored but ignored by `recluster`. Weights can be tuned later by Role 1 + Role 2 together; record any change here.
 
+Weights live in the `dev_config` row (§11) and default to the values above. The ablation presets are in `spacetime/src/fusion.ts`.
+
 ## 5. Track thresholds (used by `recluster`)
 - Cluster radius: events within **800 m** and **120 s** of each other belong together.
 - `candidate` → `active` when `event_count >= 5` **and** `confidence >= 0.8`.
 - `active` → `dormant` after **90 s** with no new events.
 - `dormant` → `active` again if a new cluster with the **same `url_hash`** appears.
+- Role 1 additions (not in the original contract): `candidate` → `closed` after 120 s with no events; `dormant` → `closed` after 10 min; two live tracks of the same `url_hash` within 1 km are merged (the older one survives, the other is `closed`).
 
 ---
 
@@ -222,3 +226,24 @@ Runs on the Brev box. Phone app and simulator both call it.
 | 2:00 AM | **C4 Metrics** | Eval numbers computed from at least 3 scenarios |
 | 8:00 AM Sun | **C5 Freeze** | Only bug fixes after this |
 | 8–10 AM | **C6 Rehearse** | 3 full runs + failure drills from `TESTING.md` |
+
+---
+
+## 11. Role 1 additions (changelog)
+
+Announced in chat before pushing, per the rule at the top.
+
+**`dev_config`**: one row, `id = 0`, public, written only by dev/sim reducers.
+| Field | Type | Notes |
+|---|---|---|
+| `id` | u32 | primary key, always 0 |
+| `w_rat`, `w_sms`, `w_smsc` | f32 | §4 fusion weights (default 0.45 / 0.35 / 0.20) |
+| `smsc_bonus` | f32 | recluster confidence bonus when any event has `smsc_match == "no"` (default 0.1) |
+| `sim_now_ms` | u64 | latest `sim_truth.ts_ms`; `recluster` uses `max(server time, sim_now_ms)` as "now" so `sim run --speed 4x` ages events on sim time. `reset_world` sets it back to 0. |
+
+**Other notes:**
+- `recluster_schedule` is a private scheduled table (one row, 3 s interval). Clients never call `recluster`.
+- `report_anomaly` re-coarsens `lat`/`lon` to 3 decimals server-side, clamps `sms_score` to 0–1, and normalizes `smsc_match` (anything else becomes `"unknown"`), so a buggy client can't store exact GPS.
+- `agent_write_trace` truncates `text` to 140 chars and rejects unknown `kind`s. `agent_set_prediction` rejects a `path_json` that isn't an array of `[lat, lon]`. `updated_ms = 0` / `sent_ms = 0` mean "use server time".
+- `agent_link_campaign` sets `campaign.first_seen_ms` to the earliest event with that `url_hash`.
+- Client bindings: `spacetime/bindings/index.ts` (same shape as `spacetime generate` output). Reducer accessors are camelCase, e.g. `conn.reducers.reportAnomaly({...})`.

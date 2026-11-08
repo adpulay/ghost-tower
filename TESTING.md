@@ -31,17 +31,17 @@ Run each **3 times** for metrics. Run agent evals **5–10 times** per attack sc
 ## 2. Layer tests
 
 ### 2a. Spacetime reducers (Role 1)
-- [ ] `report_anomaly` computes `fusion_score` exactly per `INTERFACES.md` §4 (test 4 hand-made payloads).
-- [ ] `recluster` with a fixed event sequence → track position within 300 m of expected.
-- [ ] Status transitions: candidate → active → dormant → active (same `url_hash`) all fire at the right thresholds.
-- [ ] Agent reducers **cannot** change `track.confidence` or `track.status`.
-- [ ] **Load test:** 300 → 1,000 → 3,000 simulated phones. Record `recluster` run time at each size.
+- [x] `report_anomaly` computes `fusion_score` exactly per `INTERFACES.md` §4 (test 4 hand-made payloads).
+- [x] `recluster` with a fixed event sequence → track position within 300 m of expected.
+- [x] Status transitions: candidate → active → dormant → active (same `url_hash`) all fire at the right thresholds.
+- [x] Agent reducers **cannot** change `track.confidence` or `track.status`.
+- [x] **Load test:** 300 → 1,000 → 3,000 simulated phones. Record `recluster` run time at each size. *(Local wasm datastore under Node, demo-01; p50 / p95. Re-measure on Maincloud. `npm run eval -- --only load`)*
 
 | Phones | recluster time (ms) | Map still smooth? |
 |---|---|---|
-| 300 | | |
-| 1,000 | | |
-| 3,000 | | |
+| 300 | 1.1 / 11.5 | not measured (needs Role 3's map) |
+| 1,000 | 3.6 / 21.1 | not measured |
+| 3,000 | 12.7 / 33.1 | not measured |
 
 ### 2b. Classifier (Role 2)
 - [ ] Held-out test split from T-Mobile's dataset, untouched until now.
@@ -55,16 +55,17 @@ Run each **3 times** for metrics. Run agent evals **5–10 times** per attack sc
 - [ ] Confusion matrix saved to `classifier/results.md`.
 
 ### 2c. Signal fusion ablation (Roles 1 + 2)
-Re-run `demo-01`, `twin-01`, `benign-01`, `benign-02` with each signal set:
+Re-run `demo-01`, `twin-01`, `benign-01`, `benign-02` (+ `border-01`) with each signal set. *(Filled by `npm run eval`, 3 runs each, events pooled. Details: `eval/results.md`.)*
 
 | Signals | Event precision | Event recall | False active tracks |
 |---|---|---|---|
-| Text only | | | |
-| 2G drop only | | | |
-| Text + 2G drop | | | |
-| All three (+ carrier log check) | | | |
+| Text only | 0.92 | 1.00 | 4 |
+| 2G drop only | 0.75 | 1.00 | 12 |
+| Text + 2G drop | 1.00 | 1.00 | 0 |
+| All three (+ carrier log check) | 1.00 | 1.00 | 0 |
 
 **Expected story:** each signal alone is noisy; combined, false alarms drop sharply.
+**Measured:** holds. Text alone false-alarms on the real TxTag reminder blast (`benign-02`); 2G drop alone false-alarms on the foreign cell (`border-01`) and garages. Text + 2G drop already gets to 0 here, so in sim the carrier check adds no extra margin. Caveat: real-toll texts use cached classifier scores of 0.55–0.95; re-run with Role 2's `/score`.
 
 ### 2d. Agent (Role 2)
 For each attack scenario, per run:
@@ -98,8 +99,8 @@ For each attack scenario, per run:
 - [ ] `registrar` report names the domain and brand and reads formally.
 
 ### 2h. `predict_route` + patrol tablet (Role 1)
-- [ ] `predict_route` on Campbell Rd heading east stays on or near the road.
-- [ ] Straight-line fallback works with the routing API turned off.
+- [x] `predict_route` on Campbell Rd heading east stays on or near the road.
+- [x] Straight-line fallback works with the routing API turned off.
 - [ ] Patrol tablet updates its status line within ~5 s of a `replan` trace row.
 - [ ] Patrol tablet is readable and tappable on the actual tablet used in the demo.
 
@@ -111,15 +112,17 @@ Fill from 3 runs of each attack scenario (median across runs):
 
 | Metric | demo-01 | turns-01 | walker-01 | Target |
 |---|---|---|---|---|
-| Time to first alert (s) | | | | < 30 |
-| Time to usable fix (s) | | | | < 60 |
-| Location error, median (m) | | | | < 250 |
-| Location error, p90 (m) | | | | < 500 |
-| Protected before hit (%) | | | | > 40 |
-| False alarms per 1,000 phone-hours (benign) | | | | ≈ 0 |
+| Time to first alert (s) | 12 | 12 | 9 | < 30 |
+| Time to usable fix (s) | 12 | 12 | 9 | < 60 |
+| Location error, median (m) | 264 | 261 | 39 | < 250 |
+| Location error, p90 (m) | 400 | 374 | 61 | < 500 |
+| Protected before hit (%) | 90* | 84* | 100* | > 40 |
+| False alarms per 1,000 phone-hours (benign) | 0 (all benign scenarios, 450 phone-hours) | | | ≈ 0 |
 | Agent success rate (%) | | | | > 90 |
 
 Targets are starting guesses; report honestly whatever you get. A real 70% beats a fake 99%.
+
+*Simulator numbers from `npm run eval` (in-process module, 3 seeds, medians). Vehicle median error misses the 250 m target by ~15 m: reports only arrive 6–14 s after a hit, so the centroid trails a car moving at 11 m/s. \*Protected before hit uses a stand-in alert (a straight 5-min corridor every 30 s), not the real agent. Re-measure once Role 2's agent runs. Agent success rate is Role 2's (§2d).*
 
 ---
 

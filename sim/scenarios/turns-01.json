@@ -1,0 +1,34 @@
+{
+  "id": "turns-01",
+  "seed": "turns-01",
+  "description": "Three turns: Campbell E, Coit N, Frankford E, Waterview S",
+  "kind": "attack",
+  "phones": 300,
+  "area_bbox": [
+    32.972,
+    -96.795,
+    33.01,
+    -96.755
+  ],
+  "blasters": [
+    {
+      "route": "routes/turns.json",
+      "speed_mps": 11,
+      "range_m": 500,
+      "on_air": [
+        [
+          0,
+          560
+        ]
+      ],
+      "brand": "TxTag",
+      "domain": "txtag-pay-demo.example"
+    }
+  ],
+  "benign": {
+    "handover_rate_per_phone_hr": 6,
+    "dropout_rate_per_phone_hr": 1,
+    "real_toll_texts": 5
+  },
+  "tick_ms": 1000
+}
