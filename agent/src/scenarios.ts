@@ -38,7 +38,9 @@ export interface Scenario {
   turns: { trackId: number; t: number }[];
 }
 
-const TURN_RAMP_S = 6; // recluster smooths heading; a turn shows up over a few seconds
+// recluster fits heading over a 90 s window, so a 90° turn swings the track heading over ~25 s
+// (measured against the real module with spacetime/scripts/smoke.ts).
+const TURN_RAMP_S = 25;
 
 export const SCENARIOS: Record<string, Scenario> = {
   "demo-01": {

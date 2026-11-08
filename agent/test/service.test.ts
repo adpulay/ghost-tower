@@ -15,7 +15,8 @@ test("demo-01: investigates on active, replans after the Coit Rd turn, predictio
   const replans = traces.filter((t) => t.kind === "replan");
   assert.equal(replans.length, 1);
   const replanS = (replans[0].ts_ms - run.startMs) / 1000;
-  assert.ok(replanS > 90 && replanS < 110, `replan at ${replanS}s`);
+  // the turn starts at 90 s and the track heading swings over ~25 s (TURN_RAMP_S)
+  assert.ok(replanS > 105 && replanS < 135, `replan at ${replanS}s`);
   const pred = run.world.predictions.get(1)!;
   const path = JSON.parse(pred.path_json) as [number, number][];
   assert.ok(path.at(-1)![0] > path[0][0], "final prediction points north after the turn");
