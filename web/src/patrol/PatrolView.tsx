@@ -5,22 +5,29 @@
 // Mount it at /patrol inside Role 3's app shell, under their SpacetimeDBProvider:
 //   <Route path="/patrol" element={<PatrolView />} />
 import { useEffect, useMemo, useState } from 'react';
-import { CircleMarker, MapContainer, Marker, Polyline, TileLayer, useMap } from 'react-leaflet';
+import { MapContainer, Marker, Polyline, TileLayer, useMap } from 'react-leaflet';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 import './patrol.css';
 import { usePatrolData } from './usePatrolData.ts';
+import { hostileSvg, interceptSvg } from '../shell/symbols';
 import {
   activeTracks, compass, etaRemaining, formatEta, parsePath, pickTarget, statusLine, type TrackRow,
 } from './patrolModel.ts';
 
 const UTD: [number, number] = [32.9857, -96.7502];
 
-const starIcon = L.divIcon({
-  className: 'patrol-star',
-  html: '<span aria-label="intercept point">★</span>',
-  iconSize: [56, 56],
-  iconAnchor: [28, 28],
+const interceptIcon = L.divIcon({
+  className: 'sym',
+  html: interceptSvg(60, '#1257c7'),
+  iconSize: [60, 60],
+  iconAnchor: [30, 30],
+});
+const targetIcon = L.divIcon({
+  className: 'sym sym-hostile patrol-hostile',
+  html: hostileSvg(44),
+  iconSize: [44, 44],
+  iconAnchor: [22, 22],
 });
 
 function useNow(ms = 1000) {
@@ -81,31 +88,28 @@ export default function PatrolView() {
           url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
           attribution="© OpenStreetMap contributors"
         />
-        {path.length > 1 && <Polyline positions={path} pathOptions={{ className: 'patrol-route', weight: 8 }} />}
-        {intercept && <Marker position={intercept} icon={starIcon} />}
+        {path.length > 1 && <Polyline positions={path} pathOptions={{ className: 'patrol-route-casing', weight: 12 }} />}
+        {path.length > 1 && <Polyline positions={path} pathOptions={{ className: 'patrol-route', weight: 6 }} />}
+        {intercept && <Marker position={intercept} icon={interceptIcon} title="Intercept point" />}
         {target && (
-          <CircleMarker
-            center={[target.lat, target.lon]}
-            radius={16}
-            pathOptions={{ className: 'patrol-target', weight: 4, fillOpacity: 0.85 }}
-          />
+          <Marker position={[target.lat, target.lon]} icon={targetIcon} title="Target" zIndexOffset={1000} />
         )}
         <FollowCamera target={target} intercept={intercept} />
       </MapContainer>
 
       <footer className="patrol-footer">
         <div className="patrol-eta">
-          <div className="patrol-eta-label">Intercept ETA</div>
+          <div className="patrol-eta-label">Get to the intercept in</div>
           <div className="patrol-eta-value">{eta === undefined ? '—' : formatEta(eta)}</div>
         </div>
         <div className="patrol-target-info">
           {target ? (
             <>
-              <div className="patrol-big">Target #{String(target.id)}</div>
-              <div>
+              <div className="patrol-big">Target {String(target.id)}</div>
+              <div className="patrol-sub">
                 {target.speed_mps >= 1
-                  ? `${compass(target.heading_deg)} · ${Math.round(target.speed_mps * 3.6)} km/h`
-                  : 'stationary'}
+                  ? `Heading ${compass(target.heading_deg)}, ${Math.round(target.speed_mps * 3.6)} km/h`
+                  : 'Stationary'}
               </div>
             </>
           ) : (
@@ -120,7 +124,7 @@ export default function PatrolView() {
                 className={`patrol-btn ${t.id === target?.id ? 'on' : ''}`}
                 onClick={() => setChosen(t.id)}
               >
-                #{String(t.id)}
+                Target {String(t.id)}
               </button>
             ))}
           </div>
