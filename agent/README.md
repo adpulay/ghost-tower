@@ -4,7 +4,10 @@ A long-lived service that watches the Spacetime `track` table and, for every tra
 `active`, runs a plan → tool → re-plan loop on Nemotron. Every tool call and result goes to
 `agent_trace` through the `agent_write_trace` reducer, so it streams live to every screen.
 
+Requires **Node.js 22.23.4 or newer** (pinned in `/.nvmrc`; `npm install` refuses older versions).
+
 ```bash
+nvm use                               # from the repo root, picks up .nvmrc
 cd agent && npm install
 cp ../.env.example ../.env            # fill in Brev URL, Spacetime, Twilio
 npm run warm                          # one dummy request; run right before judging
