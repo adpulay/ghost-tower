@@ -81,17 +81,31 @@ test("nothing is emitted until the subscription is applied; then the status is c
   stop();
 });
 
-test("subscribes to the seven public tables, and to sim_truth only in debug mode", () => {
+test("subscribes to the six required tables, and to sim_truth only in debug mode", () => {
   for (const debug of [false, true]) {
     const w = fakeWorld();
     const { stop } = run(w, debug);
     w.connected();
     const q = w.subscribed[0];
-    assert.equal(q.length, debug ? 8 : 7);
+    assert.equal(q.length, debug ? 7 : 6);
     assert.equal(q.includes("SELECT * FROM sim_truth"), debug);
     assert.ok(q.includes("SELECT * FROM track") && q.includes("SELECT * FROM agent_trace"));
     stop();
   }
+});
+
+test("a database without case_report still connects and serves the other tables", async () => {
+  const w = fakeWorld({ track: [{ id: 1n }] });
+  const { snaps, statuses, stop } = run(w);
+  w.connected();
+  assert.ok(!w.subscribed[0].includes("SELECT * FROM case_report"), "not part of the required subscription");
+  w.apply();
+  assert.deepEqual(w.subscribed[1], ["SELECT * FROM case_report"]);
+  w.failSub();
+  assert.equal(statuses.at(-1)![0], "connected");
+  assert.equal(snaps.at(-1)!.track.length, 1);
+  assert.deepEqual(snaps.at(-1)!.case_report, []);
+  stop();
 });
 
 test("sim_truth never reaches the app without debug, even if the server sent rows", async () => {

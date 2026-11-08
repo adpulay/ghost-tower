@@ -31,7 +31,10 @@ export interface ConnectHandlers {
 export type ConnectFn = (h: ConnectHandlers) => { disconnect(): void };
 
 /** Tables mirrored into the app. sim_truth is added only in debug mode. */
-const TABLES = ["anomaly_event", "track", "campaign", "agent_trace", "prediction", "alert", "case_report"] as const;
+const TABLES = ["anomaly_event", "track", "campaign", "agent_trace", "prediction", "alert"] as const;
+
+/** Tables a published database may not have yet. Subscribed separately, because one missing table fails its whole subscription. */
+const OPTIONAL_TABLES = ["case_report"] as const;
 
 /** Bounds so a long run can't grow the React state without limit. The map shows 120 s anyway. */
 const CAPS = { anomaly_event: 2000, agent_trace: 300, sim_truth: 400 } as const;
@@ -92,8 +95,8 @@ export function createLiveSourceWith(connect: ConnectFn, debug: boolean, label =
         onConnect(c) {
           if (stopped) return;
           conn = c;
-          const names: string[] = [...TABLES, ...(debug ? ["sim_truth"] : [])];
-          for (const n of names) {
+          const required: string[] = [...TABLES, ...(debug ? ["sim_truth"] : [])];
+          for (const n of [...required, ...OPTIONAL_TABLES]) {
             const t = c.db[n];
             if (!t) continue;
             t.onInsert(schedule);
@@ -106,9 +109,12 @@ export function createLiveSourceWith(connect: ConnectFn, debug: boolean, label =
               applied = true;
               onStatus("connected", "Live Spacetime");
               emit();
+              for (const n of OPTIONAL_TABLES) {
+                c.subscriptionBuilder().onError(() => {}).subscribe([`SELECT * FROM ${n}`]); // missing table: its rows just stay empty
+              }
             })
             .onError(() => !stopped && onStatus("error", "Subscription failed. Is the module published with these tables?"))
-            .subscribe(names.map((n) => `SELECT * FROM ${n}`));
+            .subscribe(required.map((n) => `SELECT * FROM ${n}`));
         },
         onError(err) {
           if (!stopped) onStatus("error", `Could not connect to ${label}: ${err.message}`);
