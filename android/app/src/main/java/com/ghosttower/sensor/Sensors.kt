@@ -24,6 +24,7 @@ import android.telephony.PhoneStateListener
 import android.telephony.TelephonyCallback
 import android.telephony.TelephonyManager
 import android.telephony.CellInfoWcdma
+import android.util.Log
 import java.util.concurrent.Executors
 import kotlin.math.cos
 import kotlin.math.sqrt
@@ -158,10 +159,13 @@ class DemoWatcher {
         override fun run() {
             if (!running) return
             io.execute {
-                val near = Reporter.activeTracks().any { (lat, lon) -> metersFromPin(lat, lon) <= Demo.TRIGGER_RADIUS_M }
+                val tracks = Reporter.activeTracks()
+                val nearest = tracks.minOfOrNull { (lat, lon) -> metersFromPin(lat, lon) }
+                val near = nearest != null && nearest <= Demo.TRIGGER_RADIUS_M
                 if (near && !fired) {
                     fired = true
-                    handler.post { Pipeline.fireDebug() }
+                    Log.i("GhostTower", "demo fire: ${tracks.size} active, nearest ${nearest?.toInt()} m")
+                    handler.post { Pipeline.fireDebug("demo") }
                 }
                 if (!near) fired = false // re-arm after the car leaves
             }
