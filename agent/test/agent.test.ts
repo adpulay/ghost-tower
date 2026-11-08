@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { actionsSummary, Investigator, REFRESH_TOOLS } from "../src/agent.js";
+import { actionsSummary, factSummary, Investigator, REFRESH_TOOLS } from "../src/agent.js";
 import type { ChatModel, ChatResponse } from "../src/llm/types.js";
 import { MockPolicy } from "../src/llm/mockPolicy.js";
 import { urlHash } from "../src/knownDomains.js";
@@ -234,7 +234,40 @@ test("an empty final reply gets a readable evidence-only summary", async () => {
   ]);
   const w = world();
   await new Investigator(w, model, { now: () => NOW }).run(TRACK, "investigate");
-  assert.match(w.traces.at(-1)!.text, /^Track #3: .*path warned\.$/);
+  assert.match(w.traces.at(-1)!.text, /^Track #3: TxTag lure(, \d+-day-old domain)?, never via carrier; heading east; \d+ phones? warned\.$/);
+});
+
+const FULL_INVESTIGATION = [
+  ["rdap_domain_age"], ["agent_link_campaign", "carrier_smsc_lookup"], ["predict_route"], ["agent_set_prediction"],
+  ["draft_report"], ["send_warning"], ["agent_record_alert"],
+];
+
+test("the closing line is built from facts: the model's parroted example is never published", async () => {
+  // The prompt's example sentence, which live Nemotron copied verbatim whatever the facts were.
+  const parrot = "TxTag lure from a 2-day-old domain, never via carrier; route predicted east on Campbell Rd, 41 phones warned.";
+  const w = world();
+  const r = await new Investigator(w, scripted([...FULL_INVESTIGATION, parrot]), { now: () => NOW }).run(TRACK, "investigate");
+  const line = w.traces.at(-1)!.text;
+  assert.equal(w.traces.at(-1)!.kind, "summary");
+  assert.doesNotMatch(line, /Campbell Rd|41 phones/);
+  const reached = w.alerts[0].recipients;
+  assert.match(line, new RegExp(`${reached} phones? warned\\.$`), "the number is the real recipient count");
+  assert.equal(r.finalText, parrot, "what the model said is still recorded for evals");
+});
+
+test("a replan's closing line states the direction predicted and the phones re-warned", async () => {
+  const w = world();
+  const north = { ...TRACK, heading_deg: 0 };
+  w.driverUpsertTrack(north);
+  await new Investigator(w, scripted([["predict_route"], ["agent_set_prediction"], ["draft_report"], ["send_warning"], ["agent_record_alert"], "ok"]), { now: () => NOW })
+    .run(north, "replan", "turned");
+  assert.match(w.traces.at(-1)!.text, /^Track #3: now heading north; route re-predicted; \d+ phones? warned\.$/);
+});
+
+test("factSummary: no warning sent and no route predicted are reported honestly", async () => {
+  const w = world();
+  const line = await factSummary(w, TRACK, "investigate", { trackId: 3, mode: "investigate", toolsCalled: [], steps: 0, finalText: null, claimedAuthority: false, errors: [] }, {});
+  assert.equal(line, "Track #3: lure not linked; no route predicted; no warning sent.");
 });
 
 test("a model that keeps calling tools after finishing is stopped with a clean summary", async () => {

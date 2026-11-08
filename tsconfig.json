@@ -27,6 +27,8 @@
     "web/src/spacetime/liveCore.test.ts",
     "web/src/spacetime/types.ts",
     "web/src/spacetime/focusTrack.ts",
-    "web/src/spacetime/focusTrack.test.ts"
+    "web/src/spacetime/focusTrack.test.ts",
+    "web/src/spacetime/geo.ts",
+    "web/src/spacetime/geo.test.ts"
   ]
 }

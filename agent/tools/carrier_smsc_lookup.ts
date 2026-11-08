@@ -30,7 +30,11 @@ export const carrierSmscLookupTool: ToolDef<{ url_hash: string; ts_ms: number },
     },
     required: ["url_hash", "ts_ms"],
   },
-  run: async (input) => carrierSmscLookup(input),
+  run: async (input, ctx) => {
+    const out = await carrierSmscLookup(input);
+    ctx.memory.smsc = out.match;
+    return out;
+  },
   summarize(out) {
     if (out.match === "no") return "Carrier SMSC check: no match, so these texts never went through the carrier network.";
     if (out.match === "yes") return "Carrier SMSC check: match, so these texts came through the normal carrier network.";

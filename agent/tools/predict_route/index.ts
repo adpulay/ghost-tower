@@ -29,6 +29,14 @@ const TIMEOUT_MS = 4000;
 const MAX_HEADING_DEV_DEG = 75;
 const USER_AGENT = "ghost-tower-predict-route/0.1";
 const MAX_SPEED_MPS = 40;
+/** At or above this a track counts as moving; below it the speed is used as given (parked, walking). */
+const MOVING_MPS = 2;
+/**
+ * A moving vehicle is predicted at no less than this (about 29 km/h). New tracks under-estimate speed
+ * (seen live: 4 m/s for a car doing 11), which made the predicted path, and so the warned area, far too
+ * short: the first warning reached 2 phones. Longer is the safe side for a warning.
+ */
+export const MIN_MOVING_SPEED_MPS = 8;
 const MAX_HORIZON_S = 900;
 
 export interface PredictRouteInput {
@@ -144,7 +152,8 @@ const r6 = (p: LatLon): LatLon => [Math.round(p[0] * 1e6) / 1e6, Math.round(p[1]
 
 export async function predictRoute(input: PredictRouteInput, deps: PredictRouteDeps = {}): Promise<PredictRouteOutput> {
   const { lat, lon } = input;
-  const speed = Math.min(MAX_SPEED_MPS, Math.max(0, Number(input.speed_mps) || 0));
+  const reported = Math.min(MAX_SPEED_MPS, Math.max(0, Number(input.speed_mps) || 0));
+  const speed = reported >= MOVING_MPS ? Math.max(reported, MIN_MOVING_SPEED_MPS) : reported;
   const horizon = Math.min(MAX_HORIZON_S, Math.max(SAMPLE_S, Number(input.horizon_s) || 300));
   const heading = Number(input.heading_deg) || 0;
   const distM = speed * horizon;

@@ -4,8 +4,10 @@ import { MockPolicy } from "../src/llm/mockPolicy.js";
 import { runScenario } from "../src/runScenario.js";
 import { SCENARIOS } from "../src/scenarios.js";
 import {
-  AgentService, DIRECTION_TOLERANCE_DEG, FIRST_WARNING_MAX_WAIT_MS, directionReliable,
+  AgentService, DIRECTION_TOLERANCE_DEG, FIRST_WARNING_MAX_WAIT_MS, STALE_PREDICTION_MS, directionReliable, refreshHeading,
 } from "../src/service.js";
+import { bearingDeg } from "../src/geo.js";
+import type { ChatModel } from "../src/llm/types.js";
 import { MemoryWorld } from "../src/world/memory.js";
 import type { Track } from "../src/types.js";
 
@@ -114,4 +116,118 @@ test("a heading that contradicts the movement (reports northwest, drives east) a
   const { firstPlanSec } = await drive(40, { speed: 5, heading: 312, eastMps: 12 });
   const limit = FIRST_WARNING_MAX_WAIT_MS / 1000;
   assert.ok(firstPlanSec !== null && firstPlanSec >= limit - 1, `started at ${firstPlanSec}s; must not trust the wrong heading`);
+});
+
+// ---- a noisy heading at low speed is not a turn ----
+
+interface Phase { secs: number; speed: number; heading: number; eastMps: number; northMps: number }
+
+async function driveReplans(phases: Phase[]) {
+  let now = T0;
+  const w = new MemoryWorld(() => now);
+  const svc = new AgentService(w, new MockPolicy(), { now: () => now });
+  let lat = LAT, lon = -96.79;
+  const replanAt: number[] = [];
+  let sec = 0;
+  for (const p of phases) {
+    for (let i = 0; i < p.secs; i++, sec++) {
+      lon += p.eastMps / M_PER_DEG_LON;
+      lat += p.northMps / 111_320;
+      w.driverUpsertTrack({
+        id: 5, lat, lon, heading_deg: p.heading, speed_mps: p.speed, confidence: 0.9, event_count: 12,
+        status: "active", campaign_id: 0, updated_ms: now,
+      });
+      const before = w.traces.filter((t) => t.kind === "replan").length;
+      await svc.tick();
+      await svc.idle();
+      if (w.traces.filter((t) => t.kind === "replan").length > before) replanAt.push(sec);
+      now += 1000;
+    }
+  }
+  return replanAt;
+}
+
+test("a heading that flips at low speed while the track keeps going the same way is not a replan", async () => {
+  // East at 12 m/s, then 15 s of "heading northwest at 3 m/s" (the position still heads east), then east again.
+  const replans = await driveReplans([
+    { secs: 25, speed: 12, heading: 90, eastMps: 12, northMps: 0 },
+    { secs: 15, speed: 3, heading: 314, eastMps: 12, northMps: 0 },
+    { secs: 15, speed: 12, heading: 90, eastMps: 12, northMps: 0 },
+  ]);
+  assert.deepEqual(replans, [], "no replan for heading noise");
+});
+
+test("a real turn (heading and movement both go north) still replans, once", async () => {
+  const replans = await driveReplans([
+    { secs: 25, speed: 12, heading: 90, eastMps: 12, northMps: 0 },
+    { secs: 40, speed: 12, heading: 0, eastMps: 0, northMps: 12 },
+  ]);
+  assert.equal(replans.length, 1, `replans at ${replans}`);
+  assert.ok(replans[0] >= 25 + 8 && replans[0] <= 25 + 20, `replanned ${replans[0] - 25}s after the turn`);
+});
+
+// ---- the route (and the warning zone drawn from it) refreshes regularly, and follows a turn ----
+
+async function driveRefresh(phases: Phase[]) {
+  let now = T0;
+  const w = new MemoryWorld(() => now);
+  let calls = 0;
+  const mock = new MockPolicy();
+  const counting: ChatModel = { name: "counting", chat: (m) => { calls++; return mock.chat(m); } };
+  const svc = new AgentService(w, counting, { now: () => now });
+  let lat = LAT, lon = -96.79;
+  const seen: number[] = [];
+  const snapshots: { sec: number; path: [number, number][]; replans: number; calls: number }[] = [];
+  let sec = 0;
+  for (const p of phases) {
+    for (let i = 0; i < p.secs; i++, sec++) {
+      lon += p.eastMps / M_PER_DEG_LON;
+      lat += p.northMps / 111_320;
+      w.driverUpsertTrack({
+        id: 5, lat, lon, heading_deg: p.heading, speed_mps: p.speed, confidence: 0.9, event_count: 12,
+        status: "active", campaign_id: 0, updated_ms: now,
+      });
+      await svc.tick();
+      await svc.idle();
+      const pred = w.predictions.get(5);
+      if (pred && !seen.includes(pred.updated_ms)) seen.push(pred.updated_ms);
+      snapshots.push({ sec, path: pred ? JSON.parse(pred.path_json) : [], replans: w.traces.filter((t) => t.kind === "replan").length, calls });
+      now += 1000;
+    }
+  }
+  return { w, calls, seen, snapshots };
+}
+
+test("the predicted route refreshes every few seconds without calling the model", async () => {
+  const east: Phase = { secs: 60, speed: 12, heading: 90, eastMps: 12, northMps: 0 };
+  const { w, seen, snapshots } = await driveRefresh([east]);
+  // Investigation done (it alone uses the model); then count how many times the route was re-published.
+  const doneAt = snapshots.find((s) => w.alerts.length > 0 && s.calls > 0)!;
+  const after = snapshots.filter((s) => s.sec > doneAt.sec);
+  assert.equal(after.at(-1)!.calls, doneAt.calls, "no model calls after the investigation: refreshes are plain computation");
+  const expected = Math.floor((60 - doneAt.sec) / (STALE_PREDICTION_MS / 1000));
+  assert.ok(seen.length >= expected, `route published ${seen.length} times, expected at least ${expected}`);
+  assert.equal(w.traces.filter((t) => /Refreshing|route predicted/i.test(t.text) && t.kind !== "summary").length, 0, "refreshes write no log lines");
+  assert.equal(w.alerts.length, 1, "refreshes send no warnings");
+});
+
+test("through a turn the route follows the movement before the replan settles", async () => {
+  const { snapshots } = await driveRefresh([
+    { secs: 30, speed: 12, heading: 90, eastMps: 12, northMps: 0 },
+    { secs: 8, speed: 12, heading: 0, eastMps: 0, northMps: 12 },
+  ]);
+  const last = snapshots.at(-1)!;
+  assert.equal(last.replans, 0, "the replan itself is still waiting for the heading to settle");
+  const head = bearingDeg(last.path[0], last.path.at(-1)!);
+  assert.ok(head < 30 || head > 330, `the route already points north (${Math.round(head)} degrees)`);
+});
+
+test("refreshHeading: trusts the reported heading, but follows the movement when they disagree or the track is slow", () => {
+  const pos = (n: number, eastMps: number) => Array.from({ length: n }, (_, i) => ({ ms: T0 + i * 1000, lat: LAT, lon: -96.79 + (eastMps * i) / M_PER_DEG_LON }));
+  const at = { lat: LAT, lon: -96.79 + (12 * 8) / M_PER_DEG_LON };
+  const now = T0 + 8_000;
+  assert.equal(refreshHeading({ ...at, speed_mps: 12, heading_deg: 80 }, pos(9, 12), now), 80, "agrees: use the reported heading");
+  assert.ok(Math.abs(refreshHeading({ ...at, speed_mps: 12, heading_deg: 314 }, pos(9, 12), now) - 90) < 2, "contradicts the movement: use where it went");
+  assert.ok(Math.abs(refreshHeading({ ...at, speed_mps: 3, heading_deg: 314 }, pos(9, 12), now) - 90) < 2, "slow track: use where it went");
+  assert.equal(refreshHeading({ ...at, speed_mps: 0.5, heading_deg: 200 }, pos(2, 0), T0 + 1_000, 90), 90, "barely moving: keep the last heading");
 });

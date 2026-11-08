@@ -5,7 +5,7 @@ import { readFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { test } from "node:test";
 import { fileURLToPath } from "node:url";
-import { bearing, haversine, lineLength, predictRoute } from "../tools/predict_route/index.js";
+import { bearing, haversine, lineLength, MIN_MOVING_SPEED_MPS, predictRoute } from "../tools/predict_route/index.js";
 import type { LatLon } from "../src/types.js";
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -98,4 +98,19 @@ test("predict_route: live OSRM (set PREDICT_ROUTE_LIVE=1)", { skip: process.env.
   const out = await predictRoute(inp(90, 11, 240), { offline: false });
   assert.equal(out.source, "osrm");
   for (const p of out.path) assert.ok(distToRoad(p) < 60);
+});
+
+test("predict_route: a moving vehicle is never predicted slower than the minimum (new tracks under-estimate speed)", async () => {
+  // Live: the tracker said 4 m/s for a car doing 11, so the warned path was ~1.2 km instead of ~3.3 km.
+  const slow = await predictRoute(inp(90, 4, 300), { offline: true });
+  assert.ok(Math.abs(haversine(START, slow.path.at(-1)!) - MIN_MOVING_SPEED_MPS * 300) <= 5, "predicted at the floor speed");
+  const fast = await predictRoute(inp(90, 11, 300), { offline: true });
+  assert.ok(Math.abs(haversine(START, fast.path.at(-1)!) - 11 * 300) <= 5, "a faster estimate is used as given");
+});
+
+test("predict_route: parked and walking speeds are not inflated", async () => {
+  const parked = await predictRoute(inp(90, 0, 300), { offline: true });
+  assert.ok(haversine(START, parked.path.at(-1)!) < 1);
+  const walker = await predictRoute(inp(90, 1.4, 300), { offline: true });
+  assert.ok(Math.abs(haversine(START, walker.path.at(-1)!) - 1.4 * 300) <= 5);
 });

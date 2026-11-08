@@ -138,7 +138,7 @@ export class Investigator {
           continue;
         }
         result.finalText = reply.content;
-        await this.writeSummary(track.id, reply.content, result, quiet);
+        await this.writeSummary(track, mode, reply.content, result, memory, quiet);
         return result;
       }
 
@@ -183,7 +183,7 @@ export class Investigator {
       // allow one more turn for its summary, then finish with an evidence-only line.
       if (REQUIRED_TOOLS[mode].every((t) => result.toolsCalled.includes(t))) {
         if (stepsSinceDone++ >= 1) {
-          await this.writeSummary(track.id, null, result, quiet);
+          await this.writeSummary(track, mode, null, result, memory, quiet);
           return result;
         }
       }
@@ -203,18 +203,19 @@ export class Investigator {
     }
   }
 
-  private async writeSummary(trackId: number, text: string | null, result: RunResult, quiet = false) {
-    let line = (text ?? "").trim();
-    // Don't let the summary say people were warned unless this run actually sent a warning.
-    if (line && WARNING_CLAIM.test(line) && !result.toolsCalled.includes("send_warning")) {
-      result.claimedUnsentWarning = true;
-      line = "";
-    }
-    if (!line || result.claimedAuthority) {
-      // Never broadcast an authority claim; fall back to an evidence-only line.
-      line = actionsSummary(trackId, result.toolsCalled);
-    }
-    if (!quiet) await writeTrace(this.world, trackId, "summary", clip(line));
+  /**
+   * The closing log line is built from what actually happened (phones warned, direction, campaign),
+   * never from the model's own wording: with the prompt's example sentence the model parroted
+   * "east on Campbell Rd, 41 phones warned" whatever the facts were. What the model said is still
+   * checked, so evals can flag a claimed-but-unsent warning or an authority claim.
+   */
+  private async writeSummary(
+    track: Track, mode: Mode, text: string | null, result: RunResult, memory: InvestigationMemory, quiet = false,
+  ) {
+    const said = (text ?? "").trim();
+    if (said && WARNING_CLAIM.test(said) && !result.toolsCalled.includes("send_warning")) result.claimedUnsentWarning = true;
+    if (quiet) return;
+    await writeTrace(this.world, track.id, "summary", clip(await factSummary(this.world, track, mode, result, memory)));
   }
 }
 
@@ -270,6 +271,25 @@ function userMessage(mode: Mode, ctx: ContextBlock, note?: string): string {
   ]
     .filter(Boolean)
     .join("\n");
+}
+
+/**
+ * The closing log line, from facts only: campaign, whether it bypassed the carrier, the direction we
+ * predicted along, and how many phones the warning actually reached.
+ */
+export async function factSummary(
+  world: World, track: Track, mode: Mode, result: RunResult, memory: InvestigationMemory,
+): Promise<string> {
+  const fresh = (await world.getTrack(track.id)) ?? track;
+  const campaign = fresh.campaign_id ? await world.getCampaign(fresh.campaign_id) : undefined;
+  const sent = memory.lastWarning?.sent;
+  const warned = sent === undefined ? "no warning sent" : `${sent} ${sent === 1 ? "phone" : "phones"} warned`;
+  const heading = result.predictionAtMs !== undefined ? `heading ${compass(result.predictionHeading ?? fresh.heading_deg)}` : "no route predicted";
+  if (mode === "replan") return `Track #${track.id}: now ${heading}; route re-predicted; ${warned}.`;
+  const lure = campaign
+    ? `${campaign.brand} lure${campaign.domain_age_days >= 0 ? `, ${campaign.domain_age_days}-day-old domain` : ""}`
+    : "lure not linked";
+  return `Track #${track.id}: ${lure}${memory.smsc === "no" ? ", never via carrier" : ""}; ${heading}; ${warned}.`;
 }
 
 /**

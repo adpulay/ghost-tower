@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import L from "leaflet";
-import { parseLatLonList, pointInPolygon, type LatLon } from "../spacetime/geo";
+import { corridorPolygon, parseLatLonList, pointInPolygon, type LatLon } from "../spacetime/geo";
 import { useTables } from "../spacetime/SpacetimeContext";
 import { hostileSvg, interceptSvg } from "../shell/symbols";
 import { focusCampaign, focusTrack } from "../spacetime/focusTrack";
@@ -86,21 +86,30 @@ export function AnalystMap() {
     if (!map || !layer) return;
     layer.clearLayers();
 
-    // Alert zone, with a brief highlight when a new warning goes out.
+    // Warning zone, with a brief highlight when a new warning goes out. It is the corridor around the
+    // CURRENT predicted path, so it follows the blaster as the prediction refreshes (every few seconds).
+    // It used to be the last alert's fixed polygon, which only changed at a full investigation or replan,
+    // so the zone lagged the car and a phone ahead of it could sit outside the zone.
     const alert = tables.alert[tables.alert.length - 1];
     if (alert && alert.id !== lastAlertRef.current.id) {
       lastAlertRef.current = { id: alert.id, at: Date.now() };
     }
     if (alert) {
+      const focus = focusTrack(tables.track);
+      const pred = focus ? tables.prediction.find((p) => p.track_id === focus.id) : undefined;
+      const warnedYet = focus ? tables.alert.some((a) => a.track_id === focus.id) : true;
+      const path = pred ? parseLatLonList(pred.path_json) : [];
+      const zone = warnedYet && path.length > 1 ? corridorPolygon(path, 300) : parseLatLonList(alert.zone_json);
+      const warnedTotal = tables.alert.reduce((sum, a) => sum + a.recipients, 0);
       const flashing = now - lastAlertRef.current.at < FLASH_MS;
-      L.polygon(parseLatLonList(alert.zone_json), {
-        color: ALERT_ZONE,
-        weight: flashing ? 3 : 2,
-        fillColor: ALERT_ZONE,
-        fillOpacity: flashing ? 0.3 : 0.12,
+      L.polygon(zone, {
+        color: "#f5c542",
+        weight: flashing ? 4 : 2,
+        fillColor: "#f5c542",
+        fillOpacity: flashing ? 0.4 : 0.18,
         className: flashing ? "zone-flash" : "",
       })
-        .bindTooltip(`Alert zone: ${alert.recipients} phones warned`)
+        .bindTooltip(`Warning zone, follows the predicted path: ${warnedTotal} phones warned`)
         .addTo(layer);
     }
 

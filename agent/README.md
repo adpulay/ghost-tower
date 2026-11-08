@@ -39,7 +39,7 @@ vllm serve --model "nvidia/NVIDIA-Nemotron-Nano-3-30B-A3B-FP8" --dtype auto --tr
 |---|---|---|
 | goes `active` (or comes back from `dormant`) | **investigate** once its direction can be trusted (see below): group campaign, check origin, predict route, warn path | `plan` … `summary` |
 | heading changes > 45° from the last prediction (speed ≥ 2 m/s, once the turn settles) | **replan**: re-predict and re-warn | `replan` (highlighted on the panel) |
-| prediction older than 20 s | **refresh**: re-predict only. **Silent**: no log lines, and only the route tools are offered | none (the map shows the new path) |
+| prediction older than 4 s | **refresh**: re-predict and re-publish the route. **Plain computation, no model call**, no log lines. Also runs mid-turn, aimed along where the track is actually going, so the route and the warning zone drawn from it follow the car instead of waiting for the replan | none (the map shows the new path and zone) |
 | goes `dormant` | nothing to do | `summary` "Track dormant, watching for campaign reappearance" |
 
 **First warning waits for a trustworthy direction.** A new track reports little or no speed and a noisy heading,
@@ -49,12 +49,22 @@ and its reported heading is within 45 degrees of where its position has actually
 or after 25 s regardless (`FIRST_WARNING_MAX_WAIT_MS`). Replans and refreshes are unaffected.
 
 Guardrails:
-- At most 12 model steps per run (a model that stops before its mode's required tools are done gets up to 2 reminders; a summary claiming an unsent warning is replaced), a 20 s timeout per model call, and one retry. Failures write a
+- At most 12 model steps per run (a model that stops before its mode's required tools are done gets up to 2 reminders; the closing log line is built from facts, see below), a 20 s timeout per model call, and one retry. Failures write a
   trace line and retry 10 s later; they don't crash the service.
 - Write tools are pinned to the track under investigation. **No tool can write
-  `track.confidence` or `track.status`.** The final summary is checked for claims that the
-  agent set them. If one is found, it's flagged for evals and replaced with an evidence-only
-  line.
+  `track.confidence` or `track.status`.**
+- **The closing log line is built from facts, not from the model's wording** (`factSummary` in
+  `src/agent.ts`): e.g. `Track #3: TxTag lure, 2-day-old domain, never via carrier; heading east; 31 phones
+  warned.` The phone count is what `send_warning` really reached; the direction is the one predicted. Live,
+  the model copied the prompt's example sentence ("east on Campbell Rd, 41 phones warned") whatever the
+  facts were. What the model said is still recorded (`finalText`) and checked, so evals can flag an authority
+  claim or a warning it claimed but never sent.
+- **Replans need a trustworthy direction too.** A turn is only acted on once the heading has settled *and*
+  agrees with where the track actually went. At low speed the reported heading is noise (seen live:
+  "turned 55 degrees, now heading northwest" part-way up a straight road).
+- **A moving vehicle is predicted at no less than 8 m/s** (`MIN_MOVING_SPEED_MPS` in
+  `tools/predict_route/index.ts`). New tracks under-estimate speed (4 m/s for a car doing 11), which made the
+  warned path far too short. Parked and walking speeds (< 2 m/s) are used as given.
 - Trace lines are ≤140 chars. Results from mocked tools end in `[simulated]`, which the trace
   panel shows as a tag.
 

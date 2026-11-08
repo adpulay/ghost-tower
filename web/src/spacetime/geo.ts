@@ -34,6 +34,31 @@ export function offsetM(p: LatLon, northM: number, eastM: number): LatLon {
   ];
 }
 
+const dest = (p: LatLon, headingDeg: number, distM: number): LatLon => {
+  const h = rad(headingDeg);
+  return offsetM(p, Math.cos(h) * distM, Math.sin(h) * distM);
+};
+
+/**
+ * Corridor of half-width `halfWidthM` around a path, with a cap at each end. Same construction as the
+ * agent's warning zone (agent/src/geo.ts corridorPolygon), so the zone drawn from the live prediction
+ * matches the one the agent warns.
+ */
+export function corridorPolygon(path: LatLon[], halfWidthM = 300): LatLon[] {
+  if (path.length === 0) return [];
+  if (path.length === 1) return [0, 60, 120, 180, 240, 300].map((h) => dest(path[0], h, halfWidthM));
+  const left: LatLon[] = [];
+  const right: LatLon[] = [];
+  for (let i = 0; i < path.length; i++) {
+    const h = bearingDeg(path[Math.max(0, i - 1)], path[Math.min(path.length - 1, i + 1)]);
+    left.push(dest(path[i], h - 90, halfWidthM));
+    right.push(dest(path[i], h + 90, halfWidthM));
+  }
+  const startCap = dest(path[0], bearingDeg(path[0], path[1]) + 180, halfWidthM);
+  const endCap = dest(path[path.length - 1], bearingDeg(path[path.length - 2], path[path.length - 1]), halfWidthM);
+  return [startCap, ...left, endCap, ...right.reverse()];
+}
+
 export function parseLatLonList(json: string): LatLon[] {
   try {
     const v = JSON.parse(json);

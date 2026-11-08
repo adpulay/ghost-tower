@@ -15,6 +15,8 @@ export interface InvestigationMemory {
   lastZone?: LatLon[];
   lastWarning?: { message: string; sent: number; zone: LatLon[] };
   lastDraft?: { kind: string; text: string };
+  /** carrier_smsc_lookup answer for this run: "yes" | "no" | "unknown". */
+  smsc?: string;
 }
 
 export interface ToolContext {

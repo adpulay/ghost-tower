@@ -1,3 +1,4 @@
+import { predictRoute } from "../tools/predict_route/index.js";
 import { Investigator, type Mode, type RunResult } from "./agent.js";
 import { bearingDeg, compass, haversineM, headingDelta } from "./geo.js";
 import type { ChatModel } from "./llm/types.js";
@@ -6,7 +7,12 @@ import type { Track } from "./types.js";
 import type { World } from "./world/World.js";
 
 export const TURN_THRESHOLD_DEG = 45;
-export const STALE_PREDICTION_MS = 20_000;
+/**
+ * How often the predicted route (and so the warning zone drawn from it) is refreshed. Every 20 s, through
+ * the model, the zone lagged the car and a turn was not followed until the replan. Refreshes are now plain
+ * computation (predict_route + agent_set_prediction, no model call), so they can be this frequent.
+ */
+export const STALE_PREDICTION_MS = 4_000;
 /** Below this speed, heading is noise (parked / stop-and-go) and never triggers a replan. */
 export const MIN_TURN_SPEED_MPS = 2;
 const RETRY_AFTER_ERROR_MS = 10_000;
@@ -49,6 +55,30 @@ interface TrackState {
   positions: { ms: number; lat: number; lon: number }[];
   /** When this track was first seen active (reset when it goes dormant). */
   activeSinceMs?: number;
+}
+
+/**
+ * The heading to aim a refresh at. The reported heading is used unless it contradicts where the track has
+ * actually gone over the last few seconds (or the track is too slow for a heading to mean anything), in
+ * which case we trust the movement. That lets the route follow a turn before the heading has settled.
+ */
+export function refreshHeading(
+  track: Pick<Track, "speed_mps" | "heading_deg" | "lat" | "lon">,
+  positions: readonly { ms: number; lat: number; lon: number }[],
+  now: number,
+  lastHeading?: number,
+): number {
+  const first = positions[0];
+  if (first && now - first.ms >= DIRECTION_WINDOW_MS - 1_000) {
+    const from: [number, number] = [first.lat, first.lon];
+    const to: [number, number] = [track.lat, track.lon];
+    if (haversineM(from, to) >= MIN_DISPLACEMENT_M) {
+      const went = bearingDeg(from, to);
+      if (track.speed_mps < MIN_TURN_SPEED_MPS || headingDelta(track.heading_deg, went) > DIRECTION_TOLERANCE_DEG) return went;
+    }
+  }
+  if (track.speed_mps < MIN_TURN_SPEED_MPS && lastHeading !== undefined) return lastHeading;
+  return track.heading_deg;
 }
 
 /** True when the track is moving and its heading agrees with where it has actually gone. */
@@ -166,7 +196,7 @@ export class AgentService {
     // refresh it rather than calling the first real heading a "turn".
     if (moving && st.predictionSpeed !== undefined && st.predictionSpeed < MIN_TURN_SPEED_MPS) {
       st.turnSeenMs = undefined;
-      this.launch(track, st, "refresh");
+      await this.refreshDirect(track, st, now, true);
       return;
     }
     const turned =
@@ -177,16 +207,57 @@ export class AgentService {
       st.turnSeenMs ??= now;
       const windowFull = st.headings.length > 0 && now - st.headings[0]!.ms >= TURN_SETTLE_WINDOW_MS - 1_000;
       const steady = st.headings.every((h) => headingDelta(track.heading_deg, h.deg) <= TURN_SETTLE_DEG);
-      const settled = (windowFull && steady) || now - st.turnSeenMs >= TURN_SETTLE_MAX_MS;
-      if (!settled) return; // still mid-turn; don't predict along a diagonal
+      // Also demand the heading agrees with where the track really went: at low speed the reported
+      // heading is noise (seen live: "turned 55 degrees, now heading northwest" mid-way up Coit Rd).
+      const settled = (windowFull && steady && directionReliable(track, st.positions, now)) || now - st.turnSeenMs >= TURN_SETTLE_MAX_MS;
+      if (!settled) {
+        // Still mid-turn: don't warn along a diagonal, but keep the route (and zone) following the movement.
+        await this.refreshIfDue(track, st, now);
+        return;
+      }
       st.turnSeenMs = undefined;
       const d = Math.round(headingDelta(track.heading_deg, st.predictionHeading!));
       this.launch(track, st, "replan", `Track #${track.id} turned ${d}°, now heading ${compass(track.heading_deg)}; re-predicting route and re-warning`);
       return;
     }
     st.turnSeenMs = undefined;
-    if (st.predictionMs === undefined || now - st.predictionMs > STALE_PREDICTION_MS) {
-      this.launch(track, st, "refresh");
+    await this.refreshIfDue(track, st, now);
+  }
+
+  private async refreshIfDue(track: Track, st: TrackState, now: number): Promise<void> {
+    if (st.predictionMs === undefined || now - st.predictionMs >= STALE_PREDICTION_MS) {
+      await this.refreshDirect(track, st, now);
+    }
+  }
+
+  /**
+   * Keep the published route current: predict from the track's latest position and publish it. No model
+   * call and no log lines. `predictionHeading` / `predictionSpeed` stay the values the last full
+   * investigation or replan warned along, so a real turn is still noticed against them. They are only
+   * re-based when `rebaseline` is set (the first prediction was made before the track had a direction).
+   */
+  private async refreshDirect(track: Track, st: TrackState, now: number, rebaseline = false): Promise<void> {
+    const heading = refreshHeading(track, st.positions, now, st.predictionHeading);
+    try {
+      const out = await predictRoute({
+        lat: track.lat, lon: track.lon, heading_deg: heading, speed_mps: track.speed_mps, horizon_s: 300,
+      });
+      await this.world.agentSetPrediction({
+        track_id: track.id,
+        path_json: JSON.stringify(out.path),
+        intercept_lat: out.intercept[0],
+        intercept_lon: out.intercept[1],
+        eta_s: out.eta_s,
+        updated_ms: this.now(),
+      });
+      st.predictionMs = now;
+      if (rebaseline) {
+        st.predictionHeading = heading;
+        st.predictionSpeed = track.speed_mps;
+      }
+    } catch (e) {
+      this.log?.({ event: "refresh_error", track: track.id, error: String(e) });
+      st.predictionMs = now - STALE_PREDICTION_MS + RETRY_AFTER_ERROR_MS; // back off before retrying
     }
   }
 
