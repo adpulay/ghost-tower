@@ -24,14 +24,14 @@ Per-role plans: `A.zip` (Role 1), `C.zip` (Role 2), `J/J.md` (Role 3).
 
 ## Run it
 
-Needs Node >= 22.18 for the Role 1 parts (the web app and agent run on Node 20) and Python 3.10+. For a live instance you also need the [SpacetimeDB CLI](https://spacetimedb.com/install).
+Needs Node 22.23.4 or newer (pinned in `.nvmrc`; `agent/` refuses older versions) and Python 3.10+ for the classifier. For a live instance you also need the [SpacetimeDB CLI](https://spacetimedb.com/install).
 
 ```sh
 npm install                                               # 1. deps (repo root: spacetime, sim, eval)
 spacetime publish --project-path spacetime ghost-tower    # 2. module (add -s maincloud for the shared instance)
 SPACETIME_DB=ghost-tower npm run sim -- run demo-01       # 3. drive the demo (add --speed 4x to go faster)
 npm run eval                                              # 4. metrics + ablation + load test -> eval/results.md
-npm test                                                  # 5. reducer, sim, eval and patrol tests (Node >= 22.18; predict_route tests are in agent/)
+npm test                                                  # 5. reducer, sim, eval and patrol tests (predict_route tests are in agent/)
 ```
 
 No server handy? `npm run sim -- run --local demo-01` runs the **real module in-process** on the SpacetimeDB SDK's test datastore. The eval and tests use the same path.
