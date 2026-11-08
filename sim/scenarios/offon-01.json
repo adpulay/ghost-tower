@@ -1,0 +1,38 @@
+{
+  "id": "offon-01",
+  "seed": "offon-01",
+  "description": "Off for 3 min, back on ~2 km further along, same campaign",
+  "kind": "attack",
+  "phones": 300,
+  "area_bbox": [
+    32.965,
+    -96.795,
+    32.992,
+    -96.735
+  ],
+  "blasters": [
+    {
+      "route": "routes/campbell_long.json",
+      "speed_mps": 11,
+      "range_m": 500,
+      "on_air": [
+        [
+          0,
+          150
+        ],
+        [
+          330,
+          440
+        ]
+      ],
+      "brand": "TxTag",
+      "domain": "txtag-pay-demo.example"
+    }
+  ],
+  "benign": {
+    "handover_rate_per_phone_hr": 6,
+    "dropout_rate_per_phone_hr": 1,
+    "real_toll_texts": 5
+  },
+  "tick_ms": 1000
+}

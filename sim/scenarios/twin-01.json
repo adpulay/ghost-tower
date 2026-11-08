@@ -1,0 +1,47 @@
+{
+  "id": "twin-01",
+  "seed": "twin-01",
+  "description": "Two blasters, two campaigns, on parallel roads ~1.7 km apart",
+  "kind": "attack",
+  "phones": 400,
+  "area_bbox": [
+    32.955,
+    -96.795,
+    32.988,
+    -96.73
+  ],
+  "blasters": [
+    {
+      "route": "routes/campbell_long.json",
+      "speed_mps": 11,
+      "range_m": 500,
+      "on_air": [
+        [
+          0,
+          370
+        ]
+      ],
+      "brand": "TxTag",
+      "domain": "txtag-pay-demo.example"
+    },
+    {
+      "route": "routes/arapaho_west.json",
+      "speed_mps": 9,
+      "range_m": 500,
+      "on_air": [
+        [
+          0,
+          370
+        ]
+      ],
+      "brand": "USPS",
+      "domain": "usps-redelivery-demo.example"
+    }
+  ],
+  "benign": {
+    "handover_rate_per_phone_hr": 6,
+    "dropout_rate_per_phone_hr": 1,
+    "real_toll_texts": 5
+  },
+  "tick_ms": 1000
+}

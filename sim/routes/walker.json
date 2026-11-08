@@ -1,0 +1,31 @@
+{
+ "name": "walker",
+ "description": "On foot across UTD campus (hand-placed waypoints)",
+ "source": "manual",
+ "length_m": 645,
+ "roads": [
+  "UTD campus walkways"
+ ],
+ "points": [
+  [
+   32.9846,
+   -96.7518
+  ],
+  [
+   32.9858,
+   -96.7508
+  ],
+  [
+   32.9872,
+   -96.7497
+  ],
+  [
+   32.9884,
+   -96.7493
+  ],
+  [
+   32.9893,
+   -96.748
+  ]
+ ]
+}
